@@ -1,14 +1,16 @@
 import os
 import threading
+import pathlib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Auto-download dataset from HuggingFace if not present ────────
 def download_dataset_if_needed():
     dataset_path = os.environ.get("DATASET_PATH", "./bangladesh_laws.json")
     if not os.path.exists(dataset_path):
@@ -40,16 +42,13 @@ def build_index_background():
     global rag_instance, index_ready, index_error
     try:
         download_dataset_if_needed()
-
         groq_key = os.environ["GROQ_API_KEY"]
         dataset_path = os.environ.get("DATASET_PATH", "./bangladesh_laws.json")
         cache_path = os.environ.get("INDEX_CACHE_PATH", "./rag_index.pkl")
-
         config = Config()
         config.dataset_path = dataset_path
         config.index_cache_path = cache_path
         config.embed_mmap_path = "./embeddings_tmp.npy"
-
         rag_instance = BangladeshLegalRAG(config=config, groq_api_key=groq_key)
         rag_instance.build_index(dataset_path)
         index_ready = True
@@ -114,6 +113,15 @@ def clear_history():
         rag_instance.clear_history()
     return {"message": "History cleared."}
 
-@app.get("/")
-def root():
-    return {"message": "Bangladesh Legal Advisor API is running."}
+# Serve React frontend
+static_path = pathlib.Path(__file__).parent / "static"
+if static_path.exists():
+    app.mount("/assets", StaticFiles(directory=str(static_path / "assets")), name="assets")
+
+    @app.get("/")
+    def root():
+        return FileResponse(str(static_path / "index.html"))
+else:
+    @app.get("/")
+    def root():
+        return {"message": "Bangladesh Legal Advisor API is running."}
