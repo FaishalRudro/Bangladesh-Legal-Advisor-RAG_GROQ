@@ -1,0 +1,18 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/*.pkl
+backend/*.npy
+backend/*.pkl.meta
+backend/expansion_cache.json
+
+# Environment variables (NEVER push these)
+backend/.env
+frontend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# VS Code
+.vscode/

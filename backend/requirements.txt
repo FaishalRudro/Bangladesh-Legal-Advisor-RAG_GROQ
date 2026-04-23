@@ -1,0 +1,8 @@
+groq 
+langdetect 
+faiss-cpu 
+rank-bm25
+sentence-transformers
+uvicorn
+fastapi
+dotenv
