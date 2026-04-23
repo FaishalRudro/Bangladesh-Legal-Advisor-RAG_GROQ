@@ -1,3 +1,13 @@
+---
+title: Bangladesh Legal Advisor
+emoji: ⚖️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
+
 # ⚖️ Bangladesh Legal Advisor AI
 
 A production-grade **RAG (Retrieval-Augmented Generation)** chatbot for Bangladesh legal advisory. Answers questions about Bangladesh law in **both Bangla and English**, with zero hallucination — every answer is sourced directly from the official legal database.
