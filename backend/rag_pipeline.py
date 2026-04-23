@@ -1663,8 +1663,10 @@ class BangladeshLegalRAG:
         print(f"  Cache saved to {path}")
 
     def _load_cache(self, path: str):
+        print(f"📦 pickle.load() starting on {path}...", flush=True)
         with open(path, "rb") as f:
             data = pickle.load(f)
+        print(f"📦 pickle.load() done. Deserializing components...", flush=True)
         self._chunks = data["chunks"]
         self._chunks_by_id = {c.chunk_id: c for c in self._chunks}
         self._embeddings = data["embeddings"]
