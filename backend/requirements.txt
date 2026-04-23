@@ -6,8 +6,4 @@ sentence-transformers
 uvicorn
 fastapi
 dotenv
-<<<<<<< HEAD
 huggingface_hub
-=======
-huggingface_hub
->>>>>>> ad0cc9868a6999d219e0f63c637d6e428e3cc93e
