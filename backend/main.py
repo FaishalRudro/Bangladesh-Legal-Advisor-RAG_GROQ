@@ -11,26 +11,55 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def download_dataset_if_needed():
-    dataset_path = os.environ.get("DATASET_PATH", "./bangladesh_laws.json")
+HF_TOKEN = os.environ.get("HF_TOKEN")
+DATASET_REPO = "RudroBoss/Bangladesh_Legal_Data"
+CACHE_REPO = "RudroBoss/Bangladesh_Legal_Data"
+
+def download_file_from_hf(filename, local_path):
+    from huggingface_hub import hf_hub_download
+    try:
+        downloaded = hf_hub_download(
+            repo_id=DATASET_REPO,
+            filename=filename,
+            repo_type="dataset",
+            token=HF_TOKEN,
+            local_dir=os.path.dirname(local_path) or "."
+        )
+        print(f"✅ Downloaded {filename}")
+        return downloaded
+    except Exception as e:
+        print(f"⚠️ Could not download {filename}: {e}")
+        return None
+
+def upload_file_to_hf(local_path, filename):
+    from huggingface_hub import HfApi
+    try:
+        api = HfApi()
+        api.upload_file(
+            path_or_fileobj=local_path,
+            path_in_repo=filename,
+            repo_id=DATASET_REPO,
+            repo_type="dataset",
+            token=HF_TOKEN,
+        )
+        print(f"✅ Uploaded {filename} to HuggingFace")
+    except Exception as e:
+        print(f"⚠️ Could not upload {filename}: {e}")
+
+def setup_files():
+    # Dataset
+    dataset_path = "./bangladesh_laws.json"
     if not os.path.exists(dataset_path):
-        print("📥 Dataset not found locally. Downloading from HuggingFace...")
-        try:
-            from huggingface_hub import hf_hub_download
-            hf_token = os.environ.get("HF_TOKEN")
-            downloaded = hf_hub_download(
-                repo_id="RudroBoss/Bangladesh_Legal_Data",
-                filename="bangladesh_laws.json",
-                repo_type="dataset",
-                token=hf_token,
-                local_dir=os.path.dirname(dataset_path) or "."
-            )
-            print(f"✅ Dataset downloaded to: {downloaded}")
-        except Exception as e:
-            print(f"❌ Dataset download failed: {e}")
-            raise
+        print("📥 Downloading dataset...")
+        download_file_from_hf("bangladesh_laws.json", dataset_path)
+
+    # Embedding cache
+    cache_path = "./rag_index.pkl"
+    if not os.path.exists(cache_path):
+        print("📥 Trying to download embedding cache...")
+        download_file_from_hf("rag_index.pkl", cache_path)
     else:
-        print(f"✅ Dataset found at: {dataset_path}")
+        print("✅ Embedding cache found locally.")
 
 from rag_pipeline import BangladeshLegalRAG, Config
 
@@ -41,16 +70,27 @@ index_error = None
 def build_index_background():
     global rag_instance, index_ready, index_error
     try:
-        download_dataset_if_needed()
+        setup_files()
+
         groq_key = os.environ["GROQ_API_KEY"]
-        dataset_path = os.environ.get("DATASET_PATH", "./bangladesh_laws.json")
-        cache_path = os.environ.get("INDEX_CACHE_PATH", "./rag_index.pkl")
+        dataset_path = "./bangladesh_laws.json"
+        cache_path = "./rag_index.pkl"
+
         config = Config()
         config.dataset_path = dataset_path
         config.index_cache_path = cache_path
         config.embed_mmap_path = "./embeddings_tmp.npy"
+
         rag_instance = BangladeshLegalRAG(config=config, groq_api_key=groq_key)
+
+        cache_existed = os.path.exists(cache_path)
         rag_instance.build_index(dataset_path)
+
+        # If cache was newly built, upload to HuggingFace for next time
+        if not cache_existed and os.path.exists(cache_path):
+            print("📤 Uploading embedding cache to HuggingFace...")
+            upload_file_to_hf(cache_path, "rag_index.pkl")
+
         index_ready = True
         print("✅ RAG index ready.")
     except Exception as e:
