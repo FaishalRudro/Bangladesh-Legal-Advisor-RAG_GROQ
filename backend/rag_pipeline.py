@@ -1554,7 +1554,9 @@ class BangladeshLegalRAG:
     def build_index(self, dataset_path: str = None, force_rebuild: bool = False):
         path = dataset_path or self.cfg.dataset_path
         cache = self.cfg.index_cache_path
+        print(f"🔑 Computing file hash for {path}...", flush=True)
         ds_hash = self._file_hash(path)
+        print(f"🔑 Hash done: {ds_hash[:8]}...", flush=True)
         cache_meta_path = cache + ".meta"
 
         if not force_rebuild and Path(cache).exists() and Path(cache_meta_path).exists():
