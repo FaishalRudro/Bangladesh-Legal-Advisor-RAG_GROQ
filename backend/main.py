@@ -84,6 +84,7 @@ def build_index_background():
         rag_instance = BangladeshLegalRAG(config=config, groq_api_key=groq_key)
 
         cache_existed = os.path.exists(cache_path)
+        print("📂 Loading index from cache...")
         rag_instance.build_index(dataset_path)
 
         # If cache was newly built, upload to HuggingFace for next time
