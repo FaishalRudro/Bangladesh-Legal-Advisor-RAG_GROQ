@@ -14,5 +14,7 @@ frontend/.env
 frontend/node_modules/
 frontend/dist/
 
+backend/bangladesh_laws.json
+
 # VS Code
 .vscode/
