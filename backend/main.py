@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import pathlib
 from contextlib import asynccontextmanager
@@ -13,7 +14,6 @@ load_dotenv()
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
 DATASET_REPO = "RudroBoss/Bangladesh_Legal_Data"
-CACHE_REPO = "RudroBoss/Bangladesh_Legal_Data"
 
 def download_file_from_hf(filename, local_path):
     from huggingface_hub import hf_hub_download
@@ -25,10 +25,10 @@ def download_file_from_hf(filename, local_path):
             token=HF_TOKEN,
             local_dir=os.path.dirname(local_path) or "."
         )
-        print(f"✅ Downloaded {filename}")
+        print(f"✅ Downloaded {filename}", flush=True)
         return downloaded
     except Exception as e:
-        print(f"⚠️ Could not download {filename}: {e}")
+        print(f"⚠️ Could not download {filename}: {e}", flush=True)
         return None
 
 def upload_file_to_hf(local_path, filename):
@@ -42,26 +42,28 @@ def upload_file_to_hf(local_path, filename):
             repo_type="dataset",
             token=HF_TOKEN,
         )
-        print(f"✅ Uploaded {filename} to HuggingFace")
+        print(f"✅ Uploaded {filename} to HuggingFace", flush=True)
     except Exception as e:
-        print(f"⚠️ Could not upload {filename}: {e}")
+        print(f"⚠️ Could not upload {filename}: {e}", flush=True)
 
 def setup_files():
-    # Dataset
     dataset_path = "./bangladesh_laws.json"
     if not os.path.exists(dataset_path):
-        print("📥 Downloading dataset...")
+        print("📥 Downloading dataset...", flush=True)
         download_file_from_hf("bangladesh_laws.json", dataset_path)
+    else:
+        print(f"✅ Dataset found locally.", flush=True)
 
-    # Embedding cache
     cache_path = "./rag_index.pkl"
     if not os.path.exists(cache_path):
-        print("📥 Trying to download embedding cache...")
+        print("📥 Trying to download embedding cache...", flush=True)
         download_file_from_hf("rag_index.pkl", cache_path)
     else:
-        print("✅ Embedding cache found locally.")
+        print("✅ Embedding cache found locally.", flush=True)
 
+print("⏳ Importing rag_pipeline...", flush=True)
 from rag_pipeline import BangladeshLegalRAG, Config
+print("✅ rag_pipeline imported.", flush=True)
 
 rag_instance: BangladeshLegalRAG = None
 index_ready = False
@@ -70,33 +72,38 @@ index_error = None
 def build_index_background():
     global rag_instance, index_ready, index_error
     try:
+        print("🚀 build_index_background started.", flush=True)
         setup_files()
 
         groq_key = os.environ["GROQ_API_KEY"]
         dataset_path = "./bangladesh_laws.json"
         cache_path = "./rag_index.pkl"
 
+        print("⚙️ Creating Config...", flush=True)
         config = Config()
         config.dataset_path = dataset_path
         config.index_cache_path = cache_path
         config.embed_mmap_path = "./embeddings_tmp.npy"
 
+        print("🤖 Initializing BangladeshLegalRAG...", flush=True)
         rag_instance = BangladeshLegalRAG(config=config, groq_api_key=groq_key)
 
         cache_existed = os.path.exists(cache_path)
-        print("📂 Loading index from cache...")
+        print(f"📂 Cache exists: {cache_existed}. Calling build_index...", flush=True)
         rag_instance.build_index(dataset_path)
+        print("✅ build_index() returned.", flush=True)
 
-        # If cache was newly built, upload to HuggingFace for next time
         if not cache_existed and os.path.exists(cache_path):
-            print("📤 Uploading embedding cache to HuggingFace...")
+            print("📤 Uploading embedding cache to HuggingFace...", flush=True)
             upload_file_to_hf(cache_path, "rag_index.pkl")
 
         index_ready = True
-        print("✅ RAG index ready.")
+        print("✅ RAG index ready.", flush=True)
     except Exception as e:
         index_error = str(e)
-        print(f"❌ Index build failed: {e}")
+        print(f"❌ Index build failed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
