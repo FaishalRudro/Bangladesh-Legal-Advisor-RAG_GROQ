@@ -8,6 +8,28 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Auto-download dataset from HuggingFace if not present ────────
+def download_dataset_if_needed():
+    dataset_path = os.environ.get("DATASET_PATH", "./bangladesh_laws.json")
+    if not os.path.exists(dataset_path):
+        print("📥 Dataset not found locally. Downloading from HuggingFace...")
+        try:
+            from huggingface_hub import hf_hub_download
+            hf_token = os.environ.get("HF_TOKEN")
+            downloaded = hf_hub_download(
+                repo_id="RudroBoss/Bangladesh_Legal_Data",
+                filename="bangladesh_laws.json",
+                repo_type="dataset",
+                token=hf_token,
+                local_dir=os.path.dirname(dataset_path) or "."
+            )
+            print(f"✅ Dataset downloaded to: {downloaded}")
+        except Exception as e:
+            print(f"❌ Dataset download failed: {e}")
+            raise
+    else:
+        print(f"✅ Dataset found at: {dataset_path}")
+
 from rag_pipeline import BangladeshLegalRAG, Config
 
 rag_instance: BangladeshLegalRAG = None
@@ -17,8 +39,10 @@ index_error = None
 def build_index_background():
     global rag_instance, index_ready, index_error
     try:
+        download_dataset_if_needed()
+
         groq_key = os.environ["GROQ_API_KEY"]
-        dataset_path = os.environ["DATASET_PATH"]
+        dataset_path = os.environ.get("DATASET_PATH", "./bangladesh_laws.json")
         cache_path = os.environ.get("INDEX_CACHE_PATH", "./rag_index.pkl")
 
         config = Config()
@@ -44,7 +68,7 @@ app = FastAPI(title="Bangladesh Legal Advisor API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
