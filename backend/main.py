@@ -52,7 +52,7 @@ def setup_files():
         print("📥 Downloading dataset...", flush=True)
         download_file_from_hf("bangladesh_laws.json", dataset_path)
     else:
-        print(f"✅ Dataset found locally.", flush=True)
+        print("✅ Dataset found locally.", flush=True)
 
     cache_path = "./rag_index.pkl"
     if not os.path.exists(cache_path):
@@ -60,6 +60,13 @@ def setup_files():
         download_file_from_hf("rag_index.pkl", cache_path)
     else:
         print("✅ Embedding cache found locally.", flush=True)
+
+    meta_path = "./rag_index.pkl.meta"
+    if not os.path.exists(meta_path):
+        print("📥 Trying to download cache meta...", flush=True)
+        download_file_from_hf("rag_index.pkl.meta", meta_path)
+    else:
+        print("✅ Cache meta found locally.", flush=True)
 
 print("⏳ Importing rag_pipeline...", flush=True)
 from rag_pipeline import BangladeshLegalRAG, Config
@@ -89,13 +96,18 @@ def build_index_background():
         rag_instance = BangladeshLegalRAG(config=config, groq_api_key=groq_key)
 
         cache_existed = os.path.exists(cache_path)
-        print(f"📂 Cache exists: {cache_existed}. Calling build_index...", flush=True)
+        meta_existed = os.path.exists(cache_path + ".meta")
+        print(f"📂 Cache exists: {cache_existed}, Meta exists: {meta_existed}. Calling build_index...", flush=True)
         rag_instance.build_index(dataset_path)
         print("✅ build_index() returned.", flush=True)
 
         if not cache_existed and os.path.exists(cache_path):
             print("📤 Uploading embedding cache to HuggingFace...", flush=True)
             upload_file_to_hf(cache_path, "rag_index.pkl")
+
+        if not meta_existed and os.path.exists(cache_path + ".meta"):
+            print("📤 Uploading cache meta to HuggingFace...", flush=True)
+            upload_file_to_hf(cache_path + ".meta", "rag_index.pkl.meta")
 
         index_ready = True
         print("✅ RAG index ready.", flush=True)
