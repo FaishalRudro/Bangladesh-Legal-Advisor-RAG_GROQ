@@ -35,6 +35,16 @@ export default function MessageBubble({ message }) {
                 strong: ({ children }) => <strong style={styles.strong}>{children}</strong>,
                 code: ({ children }) => <code style={styles.code}>{children}</code>,
                 hr: () => <hr style={styles.hr} />,
+                a: ({ href, children }) => (
+                  
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.link}
+                  >
+                    {children}
+                  </a>
+                ),
               }}
             >
               {message.text}
@@ -142,6 +152,11 @@ const styles = {
     border: 'none',
     borderTop: '1px solid #334155',
     margin: '12px 0',
+  },
+  link: {
+    color: '#60a5fa',
+    textDecoration: 'underline',
+    wordBreak: 'break-all',
   },
   langBadge: {
     display: 'inline-block',
