@@ -1665,6 +1665,12 @@ class BangladeshLegalRAG:
         print(f"  Cache saved to {path}")
 
     def _load_cache(self, path: str):
+        import __main__
+        import rag_pipeline as _rp
+        # Inject all classes into __main__ so pickle can find them
+        for _name in ["LawChunk", "RetrievedChunk", "SearchResult", "RepealStatus"]:
+            if not hasattr(__main__, _name):
+                setattr(__main__, _name, getattr(_rp, _name))
         print(f"📦 pickle.load() starting on {path}...", flush=True)
         with open(path, "rb") as f:
             data = pickle.load(f)
@@ -1672,12 +1678,10 @@ class BangladeshLegalRAG:
         self._chunks = data["chunks"]
         self._chunks_by_id = {c.chunk_id: c for c in self._chunks}
         self._embeddings = data["embeddings"]
-
         raw_index = faiss.deserialize_index(data["faiss_index"])
         self._index = VectorIndex.__new__(VectorIndex)
         self._index.index = raw_index
         self._index._trained = data.get("faiss_trained", True)
-
         if "bm25" in data:
             self._bm25 = BM25Index.deserialise(data["bm25"])
         else:
