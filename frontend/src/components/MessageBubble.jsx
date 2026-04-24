@@ -35,16 +35,7 @@ export default function MessageBubble({ message }) {
                 strong: ({ children }) => <strong style={styles.strong}>{children}</strong>,
                 code: ({ children }) => <code style={styles.code}>{children}</code>,
                 hr: () => <hr style={styles.hr} />,
-                a: ({ href, children }) => (
-                  
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.link}
-                  >
-                    {children}
-                  </a>
-                ),
+                a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" style={styles.link}>{children}</a>,
               }}
             >
               {message.text}
