@@ -3,7 +3,7 @@ import ChatWindow from './components/ChatWindow'
 import InputBar from './components/InputBar'
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 export default function App() {
   const [messages, setMessages] = useState([])
