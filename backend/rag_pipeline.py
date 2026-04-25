@@ -1247,6 +1247,8 @@ STRICT RULES:
 
 3. COMPLETENESS: If the source contains a specific penalty, duration, amount, or condition — state it. Don't omit concrete legal details.
 
+3a. SECTION NUMBERS: ONLY cite section numbers that appear verbatim in the Content field of the source above. If a section number is not explicitly written in the source text, DO NOT mention it. Never infer, guess, or hallucinate section numbers.
+
 4. REPEAL CONTEXT — only when relevant:
    - If the user asks about a law and it has been replaced, mention this naturally in your answer: "That law was replaced by X in [year]. Under the current law, ..."
    - If the user asks a general legal question and the retrieved sources happen to include repealed laws, just use the current law's provisions and mention the replacement naturally if helpful.
@@ -1271,6 +1273,8 @@ STRICT RULES:
 ২. পুনরাবৃত্তি নেই: একই কথা দুইবার বলবেন না। প্রতিটি বাক্য নতুন তথ্য যোগ করবে।
 
 ৩. সম্পূর্ণতা: উৎসে নির্দিষ্ট শাস্তি, সময়কাল, পরিমাণ বা শর্ত থাকলে তা বলুন। গুরুত্বপূর্ণ আইনি বিবরণ বাদ দেবেন না।
+
+৩ক. ধারা নম্বর: শুধুমাত্র সেই ধারা নম্বর উল্লেখ করুন যা উপরের উৎস দলিলের বিষয়বস্তুতে সরাসরি লেখা আছে। যদি কোনো ধারা নম্বর উৎস দলিলে স্পষ্টভাবে না থাকে, তাহলে কোনো ধারা নম্বর উল্লেখ করবেন না। নিজে থেকে ধারা নম্বর অনুমান, তৈরি বা hallucinate করবেন না।
 
 ৪. রহিতকরণ প্রসঙ্গ — শুধুমাত্র প্রাসঙ্গিক হলে:
    - যদি ব্যবহারকারী কোনো রহিত আইন সম্পর্কে জিজ্ঞেস করেন, তাহলে স্বাভাবিকভাবে উল্লেখ করুন: "এই আইনটি [বছর] সালে X দ্বারা প্রতিস্থাপিত হয়েছে। বর্তমান আইনে..."
