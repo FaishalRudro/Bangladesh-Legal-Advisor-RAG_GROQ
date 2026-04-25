@@ -1247,8 +1247,6 @@ STRICT RULES:
 
 3. COMPLETENESS: If the source contains a specific penalty, duration, amount, or condition — state it. Don't omit concrete legal details.
 
-3a. SECTION NUMBERS: ONLY cite section numbers that appear verbatim in the Content field of the source above. If a section number is not explicitly written in the source text, DO NOT mention it. Never infer, guess, or hallucinate section numbers.
-
 4. REPEAL CONTEXT — only when relevant:
    - If the user asks about a law and it has been replaced, mention this naturally in your answer: "That law was replaced by X in [year]. Under the current law, ..."
    - If the user asks a general legal question and the retrieved sources happen to include repealed laws, just use the current law's provisions and mention the replacement naturally if helpful.
@@ -1258,9 +1256,9 @@ STRICT RULES:
 
 6. NEVER FABRICATE: Do not invent any information not in the sources. If something is unclear, say so.
 
-7. REFERENCES: End with a clean **References** section as a numbered markdown list:
-   1. [Law Title] (Year) — Section X, Y — [full url as markdown link](url)
-   Do NOT list the same law multiple times. Always format the URL as a clickable markdown link like [bdlaws.minlaw.gov.bd](http://...).
+7. REFERENCES: End with a clean References section, grouped by law (not one entry per chunk):
+   - [Law Title] ([Year]) — [Key sections] — [Link]
+   Do NOT list the same law multiple times.
 
 8. IF SOURCES ARE INSUFFICIENT: Say what you found and what's missing, then suggest checking bdlaws.minlaw.gov.bd."""
 
@@ -1274,8 +1272,6 @@ STRICT RULES:
 
 ৩. সম্পূর্ণতা: উৎসে নির্দিষ্ট শাস্তি, সময়কাল, পরিমাণ বা শর্ত থাকলে তা বলুন। গুরুত্বপূর্ণ আইনি বিবরণ বাদ দেবেন না।
 
-৩ক. ধারা নম্বর: শুধুমাত্র সেই ধারা নম্বর উল্লেখ করুন যা উপরের উৎস দলিলের বিষয়বস্তুতে সরাসরি লেখা আছে। যদি কোনো ধারা নম্বর উৎস দলিলে স্পষ্টভাবে না থাকে, তাহলে কোনো ধারা নম্বর উল্লেখ করবেন না। নিজে থেকে ধারা নম্বর অনুমান, তৈরি বা hallucinate করবেন না।
-
 ৪. রহিতকরণ প্রসঙ্গ — শুধুমাত্র প্রাসঙ্গিক হলে:
    - যদি ব্যবহারকারী কোনো রহিত আইন সম্পর্কে জিজ্ঞেস করেন, তাহলে স্বাভাবিকভাবে উল্লেখ করুন: "এই আইনটি [বছর] সালে X দ্বারা প্রতিস্থাপিত হয়েছে। বর্তমান আইনে..."
    - প্রতিটি উত্তর রহিতকরণ সতর্কতা ব্যানার দিয়ে শুরু করবেন না। শুধুমাত্র সরাসরি প্রাসঙ্গিক হলে উল্লেখ করুন।
@@ -1284,9 +1280,9 @@ STRICT RULES:
 
 ৬. কিছু বানাবেন না: উৎসে নেই এমন কোনো তথ্য বানাবেন না।
 
-৭. তথ্যসূত্র: শেষে **তথ্যসূত্র** বিভাগ দিন numbered markdown list হিসেবে:
-   ১. [আইনের নাম] (সাল) — ধারা X, Y — [bdlaws.minlaw.gov.bd](url)
-   একই আইন একাধিকবার লিখবেন না। URL সবসময় clickable markdown link হিসেবে দিন।
+৭. তথ্যসূত্র: শেষে পরিষ্কার তথ্যসূত্র বিভাগ দিন, আইন অনুযায়ী গ্রুপ করুন:
+   - [আইনের নাম] ([সাল]) — [মূল ধারাসমূহ] — [লিংক]
+   একই আইন একাধিকবার লিখবেন না।
 
 ৮. উৎস অপর্যাপ্ত হলে: কী পেয়েছেন তা বলুন এবং bdlaws.minlaw.gov.bd দেখতে বলুন।"""
 
@@ -1669,12 +1665,6 @@ class BangladeshLegalRAG:
         print(f"  Cache saved to {path}")
 
     def _load_cache(self, path: str):
-        import __main__
-        import rag_pipeline as _rp
-        # Inject all classes into __main__ so pickle can find them
-        for _name in ["LawChunk", "RetrievedChunk", "SearchResult", "RepealStatus"]:
-            if not hasattr(__main__, _name):
-                setattr(__main__, _name, getattr(_rp, _name))
         print(f"📦 pickle.load() starting on {path}...", flush=True)
         with open(path, "rb") as f:
             data = pickle.load(f)
@@ -1682,10 +1672,12 @@ class BangladeshLegalRAG:
         self._chunks = data["chunks"]
         self._chunks_by_id = {c.chunk_id: c for c in self._chunks}
         self._embeddings = data["embeddings"]
+
         raw_index = faiss.deserialize_index(data["faiss_index"])
         self._index = VectorIndex.__new__(VectorIndex)
         self._index.index = raw_index
         self._index._trained = data.get("faiss_trained", True)
+
         if "bm25" in data:
             self._bm25 = BM25Index.deserialise(data["bm25"])
         else:
