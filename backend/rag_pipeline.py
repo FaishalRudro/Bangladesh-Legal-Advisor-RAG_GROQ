@@ -1256,9 +1256,9 @@ STRICT RULES:
 
 6. NEVER FABRICATE: Do not invent any information not in the sources. If something is unclear, say so.
 
-7. REFERENCES: End with a clean References section, grouped by law (not one entry per chunk):
-   - [Law Title] ([Year]) — [Key sections] — [Link]
-   Do NOT list the same law multiple times.
+7. REFERENCES: End with a clean **References** section as a numbered markdown list:
+   1. [Law Title] (Year) — Section X, Y — [full url as markdown link](url)
+   Do NOT list the same law multiple times. Always format the URL as a clickable markdown link like [bdlaws.minlaw.gov.bd](http://...).
 
 8. IF SOURCES ARE INSUFFICIENT: Say what you found and what's missing, then suggest checking bdlaws.minlaw.gov.bd."""
 
@@ -1280,9 +1280,9 @@ STRICT RULES:
 
 ৬. কিছু বানাবেন না: উৎসে নেই এমন কোনো তথ্য বানাবেন না।
 
-৭. তথ্যসূত্র: শেষে পরিষ্কার তথ্যসূত্র বিভাগ দিন, আইন অনুযায়ী গ্রুপ করুন:
-   - [আইনের নাম] ([সাল]) — [মূল ধারাসমূহ] — [লিংক]
-   একই আইন একাধিকবার লিখবেন না।
+৭. তথ্যসূত্র: শেষে **তথ্যসূত্র** বিভাগ দিন numbered markdown list হিসেবে:
+   ১. [আইনের নাম] (সাল) — ধারা X, Y — [bdlaws.minlaw.gov.bd](url)
+   একই আইন একাধিকবার লিখবেন না। URL সবসময় clickable markdown link হিসেবে দিন।
 
 ৮. উৎস অপর্যাপ্ত হলে: কী পেয়েছেন তা বলুন এবং bdlaws.minlaw.gov.bd দেখতে বলুন।"""
 
@@ -1665,6 +1665,12 @@ class BangladeshLegalRAG:
         print(f"  Cache saved to {path}")
 
     def _load_cache(self, path: str):
+        import __main__
+        import rag_pipeline as _rp
+        # Inject all classes into __main__ so pickle can find them
+        for _name in ["LawChunk", "RetrievedChunk", "SearchResult", "RepealStatus"]:
+            if not hasattr(__main__, _name):
+                setattr(__main__, _name, getattr(_rp, _name))
         print(f"📦 pickle.load() starting on {path}...", flush=True)
         with open(path, "rb") as f:
             data = pickle.load(f)
@@ -1672,12 +1678,10 @@ class BangladeshLegalRAG:
         self._chunks = data["chunks"]
         self._chunks_by_id = {c.chunk_id: c for c in self._chunks}
         self._embeddings = data["embeddings"]
-
         raw_index = faiss.deserialize_index(data["faiss_index"])
         self._index = VectorIndex.__new__(VectorIndex)
         self._index.index = raw_index
         self._index._trained = data.get("faiss_trained", True)
-
         if "bm25" in data:
             self._bm25 = BM25Index.deserialise(data["bm25"])
         else:
