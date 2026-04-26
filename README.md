@@ -15,6 +15,7 @@ A production-grade **RAG (Retrieval-Augmented Generation)** chatbot for Banglade
 ---
 
 ## 📸 Demo
+To use the model visit the link: https://huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor
 
 ### Welcome Screen
 > Index ready হলে welcome screen দেখায়, example questions সহ।
