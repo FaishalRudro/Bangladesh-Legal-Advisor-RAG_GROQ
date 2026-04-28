@@ -7,3 +7,4 @@ uvicorn
 fastapi
 dotenv
 huggingface_hub
+Pylance
