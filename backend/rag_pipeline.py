@@ -14,8 +14,9 @@ HF-2  GROQ API KEY
       Uses os.environ["GROQ_API_KEY"] only (set in HF Space Secrets).
 
 HF-3  _load_cache() FIXED
-      Removed Kaggle-specific `import rag_pipeline as _rp` and __main__ patching.
-      pickle.load() works directly without module aliasing tricks.
+      Patches sys.modules['__main__'] before pickle.load() so that classes
+      stored as '__main__.LawChunk' etc. resolve correctly when uvicorn is
+      the __main__ process.  Always restores __main__ in a finally block.
 
 HF-4  QueryExpander CACHE PATH
       /kaggle/working/expansion_cache.json  →  /tmp/expansion_cache.json
@@ -1075,63 +1076,77 @@ class CitationExtractor:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Conversational Query Detector
+# Conversational Query Detector  (LLM-based)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# FIX-7: Detect greetings/identity/small-talk so they bypass retrieval entirely.
+# FIX-7: Use the Groq LLM (llama-3.1-8b-instant) to detect greetings,
+# farewells, identity questions, and small-talk that do not require law
+# retrieval — matching the approach used in rag.py's Generator system prompt
+# OFF-TOPIC DETECTION block.
+#
+# The groq_client is wired lazily via set_conversational_client(), called
+# from BangladeshLegalRAG.__init__() and set_groq_key() once the
+# GroqGenerator is initialised.
 
-_CONVERSATIONAL_RE = re.compile(
-    r'^(?:'
-    r'hi+|hello+|hey+|howdy|greetings|'
-    r'good\s*(?:morning|afternoon|evening|night|day)|'
-    r'how\s+are\s+you|how\s+r\s+u|what.{0,3}s\s+up|'
-    r'nice\s+to\s+(?:meet|see)|'
-    r'thank(?:s|(?:\s+you))|'
-    r'bye+|goodbye|see\s+you|take\s+care|'
-    r'what\s+is\s+your\s+name|who\s+are\s+you|'
-    r'what\s+can\s+you\s+do|what\s+do\s+you\s+do|'
-    r'are\s+you\s+(?:an?\s+)?(?:ai|bot|human)|'
-    r'assalamu?\s*(?:walaikum|alaikum)|waalaikum|wa.?alaikum|'
-    r'আস.{0,5}সালাম|সালাম|ওয়ালাইকুম|'
-    r'আপনি\s+কেমন.{0,15}|কেমন\s+আছ.{0,10}|'
-    r'ধন্যবাদ|শুভেচ্ছা|শুভকামনা|'
-    r'আপনার\s+নাম.{0,15}|আপনি\s+কে.{0,10}|'
-    r'আপনি\s+কি\s+(?:মানুষ|এআই|বট|রোবট)|'
-    r'হ্যালো|হেলো|নমস্কার|'
-    r'আচ্ছা|ঠিক\s+আছে|বিদায়|'
-    r'okay|ok'
-    r')[\s!?.।,]*$',
-    re.IGNORECASE | re.UNICODE
+_conversational_groq_client = None
+_CONV_DETECT_MODEL   = "llama-3.1-8b-instant"
+_CONV_DETECT_TIMEOUT = 4.0
+
+_CONV_DETECT_SYSTEM = (
+    "You are a classifier. Your ONLY job is to decide whether a message is:\n"
+    "  A) conversational/small-talk (greeting, farewell, identity question, thanks,\n"
+    "     'how are you', 'what can you do', etc.) that does NOT require any legal\n"
+    "     database lookup, OR\n"
+    "  B) a legal or substantive question that DOES require a legal database lookup.\n\n"
+    "Output EXACTLY one token: YES if it is conversational/small-talk (case A),\n"
+    "or NO if it is a legal/substantive question (case B).\n"
+    "No explanation. No punctuation. Just YES or NO."
 )
+_CONV_DETECT_USER = "Message: {query}\nIs this conversational/small-talk?"
 
-_LEGAL_SIGNAL_RE = re.compile(
-    r'(?:আইন|ধারা|অধ্যায়|বিধি|আদালত|শাস্তি|দণ্ড|অপরাধ|সুবিধা|অধিকার|'
-    r'law|act|section|article|court|punishment|penalty|right|provision|'
-    r'বাংলাদেশ|Bangladesh|সংবিধান|constitution|চুক্তি|contract)',
-    re.IGNORECASE | re.UNICODE
-)
 
-_AMBIGUOUS_WORDS = frozenset({'good', 'bad', 'yes', 'no', 'sure', 'right',
-                               'wrong', 'great', 'nice', 'hmm', 'um', 'well'})
+def set_conversational_client(groq_client) -> None:
+    """Called once the Groq client is available so the detector can use it."""
+    global _conversational_groq_client
+    _conversational_groq_client = groq_client
 
 
 def is_conversational(query: str) -> bool:
     """
     Returns True if the query is a greeting, farewell, identity question, or
     small-talk phrase that does not require law retrieval.
-    Dynamic detection only — zero hardcoded responses.
+
+    Uses the Groq LLM (llama-3.1-8b-instant) for detection — matching the
+    approach in rag.py's Generator system prompt — instead of hardcoded regex.
+
+    Falls back to False (treat as legal query) if the LLM call fails or times
+    out, so retrieval is never accidentally skipped due to an API error.
     """
     q = query.strip()
     if not q:
         return True
-    if _CONVERSATIONAL_RE.match(q):
-        return True
-    words = q.split()
-    if len(words) == 1 and q.lower() in _AMBIGUOUS_WORDS:
+
+    if _conversational_groq_client is None:
+        # No client available yet — treat as legal query to be safe
         return False
-    if len(words) <= 2 and not _LEGAL_SIGNAL_RE.search(q) and len(q) < 25:
-        return True
-    return False
+
+    try:
+        response = _conversational_groq_client.chat.completions.create(
+            model=_CONV_DETECT_MODEL,
+            messages=[
+                {"role": "system", "content": _CONV_DETECT_SYSTEM},
+                {"role": "user",   "content": _CONV_DETECT_USER.format(query=q)},
+            ],
+            max_tokens=5,
+            temperature=0.0,
+            timeout=_CONV_DETECT_TIMEOUT,
+        )
+        answer = response.choices[0].message.content.strip().upper()
+        return answer.startswith("YES")
+    except Exception:
+        # On any failure (timeout, rate limit, etc.) fall back to treating
+        # the query as a legal question so retrieval still runs.
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1409,6 +1424,8 @@ class BangladeshLegalRAG:
                 temperature=self.cfg.groq_temperature,
             )
             self._query_expander.set_client(self._generator.client)
+            # Wire up LLM-based conversational detector with the same Groq client
+            set_conversational_client(self._generator.client)
         else:
             print("  ⚠️  No Groq API key provided. Use .set_groq_key() before chatting.")
         print("  ✅ Models loaded.\n")
@@ -1421,6 +1438,8 @@ class BangladeshLegalRAG:
             temperature=self.cfg.groq_temperature,
         )
         self._query_expander.set_client(self._generator.client)
+        # Wire up LLM-based conversational detector with the new Groq client
+        set_conversational_client(self._generator.client)
 
     # ──────────────────────── BUILD INDEX ────────────────────────────────────
 
@@ -1537,12 +1556,27 @@ class BangladeshLegalRAG:
         print(f"  Cache saved to {path}")
 
     def _load_cache(self, path: str):
-        # HF-3: Removed Kaggle-specific __main__ patching and `import rag_pipeline`.
-        # In HuggingFace, pickle.load() resolves classes from the current module directly.
-        print(f"📦 Loading cache from {path}...", flush=True)
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-        print(f"📦 Cache loaded. Deserializing...", flush=True)
+        # HF-3 FIXED: patch sys.modules['__main__'] before pickle.load() so
+        # that class references stored as '__main__.LawChunk', '__main__.RepealStatus',
+        # etc. (written when the cache was built outside uvicorn) resolve correctly.
+        # The finally block guarantees __main__ is always restored even on error.
+        import sys
+        import rag_pipeline as _rp
+
+        _orig_main = sys.modules.get('__main__')
+        sys.modules['__main__'] = _rp
+
+        try:
+            print(f"📦 Loading cache from {path}...", flush=True)
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+            print(f"📦 Cache loaded. Deserializing...", flush=True)
+        finally:
+            if _orig_main is not None:
+                sys.modules['__main__'] = _orig_main
+            else:
+                sys.modules.pop('__main__', None)
+
         self._chunks = data["chunks"]
         self._chunks_by_id = {c.chunk_id: c for c in self._chunks}
         self._embeddings = data["embeddings"]
@@ -1706,7 +1740,7 @@ class BangladeshLegalRAG:
         t0 = time.perf_counter()
         lang = self._lang_detector.detect(query)
 
-        # FIX-7: Handle conversational queries without retrieval
+        # FIX-7: Handle conversational queries without retrieval (LLM-based detection)
         if is_conversational(query):
             system, user_msg = self._prompt_builder.build_conversational(query, lang)
             if stream:
