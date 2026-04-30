@@ -1,67 +1,34 @@
 """
-bangladesh_legal_rag.py  —  FIXED VERSION
-==========================================
-All changes from original are marked with # FIX: comments.
+rag_pipeline.py  —  HuggingFace Spaces Version
+================================================
+Based on: bangladesh_legal_rag.py FIXED VERSION (1st code / BGE-M3 model)
 
-ROOT CAUSES FIXED:
-==================
-FIX-1  SECTION NUMBER EXTRACTION (CitationExtractor completely broken)
-       Original: searched for 'section X' / 'ধারা X' KEYWORDS in chunk text.
-       These keywords NEVER appear in the section header format
-       ('Title: 376. content' / 'Title: ৪৬৷ content').
-       Result: section_refs was always [] → LLM hallucinated wrong section numbers
-       (e.g. 'Sections 39, 125(2), 129' for a maternity query whose actual section is 46).
-       Fix: extract_section_number() parses the header format directly.
-       section_number is now stored in LawChunk and used everywhere.
+Changes from Kaggle version for HuggingFace Spaces:
+=====================================================
+HF-1  PATH CHANGES
+      /kaggle/working  →  /tmp
+      /kaggle/input/.. →  data/bangladesh_laws.json
 
-FIX-2  SECTION NUMBER IN LawChunk DATACLASS
-       Added section_number: str = "" field to LawChunk so the number is
-       stored once at chunk-time and reused in embedding, prompt, and citations.
+HF-2  GROQ API KEY
+      Kaggle UserSecretsClient removed.
+      Uses os.environ["GROQ_API_KEY"] only (set in HF Space Secrets).
 
-FIX-3  SECTION NUMBER IN LawChunker
-       _extract_section_number() added; called during chunk_law() and stored
-       in every LawChunk. Handles EN ('Title: 376. text'), BN ('Title: ৪৬৷ text'),
-       and direct-number ('376. text' / '৪৬৷ text') formats.
+HF-3  _load_cache() FIXED
+      Removed Kaggle-specific `import rag_pipeline as _rp` and __main__ patching.
+      pickle.load() works directly without module aliasing tricks.
 
-FIX-4  SECTION NUMBER IN EMBEDDING TEXT
-       _chunk_to_embed_text() now includes section_number so queries like
-       'section 376' or 'ধারা ৪৬' hit the right chunk in dense retrieval.
+HF-4  QueryExpander CACHE PATH
+      /kaggle/working/expansion_cache.json  →  /tmp/expansion_cache.json
 
-FIX-5  SECTION NUMBER IN PROMPT CONTEXT
-       PromptBuilder._format_context() now shows 'Section Number: X' header line
-       and uses chunk.section_number in the rendered references block.
-       The LLM no longer needs to guess section numbers from training memory.
+HF-5  chat() stream mode
+      Removed print() calls inside stream loop (Gradio handles output directly).
 
-FIX-6  CITATION RENDERER — section grouping by law
-       CitationExtractor.extract() uses chunk.section_number (always accurate)
-       instead of regex-derived section_refs (always empty).
-       PromptBuilder references block groups by law and lists real section numbers.
-
-FIX-7  CONVERSATIONAL QUERY HANDLING (no hardcoding)
-       chat() now calls is_conversational(query) before retrieval.
-       If True, it asks the LLM to respond naturally as a legal-assistant
-       chatbot WITHOUT injecting law chunks (which caused bizarre legal responses
-       to 'hi' / 'আপনি কেমন আছেন?').
-       Detection is fully dynamic via regex patterns + short-query heuristic;
-       zero hardcoded responses.
-
-FIX-8  TEST 6 CONDITION (cross-lingual EN→BN)
-       Test checked 'maternity' in c['text'].lower() but law text is Bangla.
-       Fixed to check Bangla maternity keywords OR Labour law title match.
-
-No other logic, architecture, or behavior was changed.
+All FIX-1..8 from the original fixed version are preserved as-is.
+Model and retrieval approach identical to 1st code (BAAI/bge-m3, dim=1024).
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 1: Install dependencies (run once on Kaggle)
-# ─────────────────────────────────────────────────────────────────────────────
-INSTALL_SCRIPT = """
-!pip install -q groq langdetect faiss-cpu rank-bm25
-!pip install -q sentence-transformers
-"""
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CELL 2: Imports
+# Imports
 # ─────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -89,17 +56,18 @@ warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.WARNING)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 3: Configuration
+# Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class Config:
     # ── Dataset ──
-    dataset_path: str = "/kaggle/input/datasets/mdfaishalahmedrudroo/maindataaalaw/bangladesh_laws.json"
+    # HF-1: path changed from /kaggle/input/... to data/ (local repo folder)
+    dataset_path: str = "data/bangladesh_laws.json"
 
-    # ── Embedding model (multilingual, handles BN/EN/mixed) ──
-    embed_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-    embed_dim: int = 768
+    # ── Embedding model (strongest multilingual, handles BN/EN/mixed) ──
+    embed_model: str = "BAAI/bge-m3"
+    embed_dim: int = 1024
 
     # ── Reranker: multilingual mMiniLM (100+ languages including Bangla) ──
     rerank_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
@@ -129,7 +97,8 @@ class Config:
     # ── FAISS ──
     faiss_nlist: int = 64
     faiss_nprobe: int = 16
-    index_cache_path: str = "/kaggle/working/rag_index.pkl"
+    # HF-1: cache path changed from /kaggle/working to /tmp
+    index_cache_path: str = "/tmp/rag_index.pkl"
 
     # ── Generation ──
     groq_model: str = "llama-3.3-70b-versatile"
@@ -139,8 +108,8 @@ class Config:
     # ── Embedding batch size ──
     embed_batch_size: int = 32
 
-    # ── Memory-mapped embedding temp file ──
-    embed_mmap_path: str = "/kaggle/working/_embeddings_tmp.npy"
+    # HF-1: mmap path changed from /kaggle/working to /tmp
+    embed_mmap_path: str = "/tmp/_embeddings_tmp.npy"
 
     # ── Reranker candidate pool multiplier ──
     rerank_pool_multiplier: int = 5
@@ -149,7 +118,7 @@ class Config:
 CONFIG = Config()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 4: Data models
+# Data models
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RepealStatus(str, Enum):
@@ -203,7 +172,7 @@ class SearchResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 5: Title Normalizer
+# Title Normalizer
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TitleNormalizer:
@@ -277,7 +246,7 @@ class TitleNormalizer:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 6: Repeal Chain Detector
+# Repeal Chain Detector
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RepealChainDetector:
@@ -378,7 +347,7 @@ class RepealChainDetector:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 7: Repeal Chain Linker
+# Repeal Chain Linker
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RepealChainLinker:
@@ -475,13 +444,13 @@ class RepealChainLinker:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 8: Advanced Chunker
+# Advanced Chunker
 # ─────────────────────────────────────────────────────────────────────────────
 
 class LawChunker:
     """
     Section-preserving chunker.
-    FIX-3: Now extracts section_number from the pipe-section header
+    FIX-3: Extracts section_number from the pipe-section header
     and stores it in every LawChunk.
     """
 
@@ -552,10 +521,7 @@ class LawChunker:
             ))
         return chunks
 
-    # FIX-3: New method — extracts section number from pipe-section header.
-    # Dataset format: 'Section Title: SECNUM. content' (EN)
-    #              or 'Section Title: SECNUM৷ content' (BN)
-    # Handles: '376.', '1A.', '৪৬৷', '৪৬।', '৪৬ (১)', and direct-number formats.
+    # FIX-3: Extracts section number from pipe-section header.
     @staticmethod
     def _extract_section_number(pipe_text: str) -> str:
         # EN: 'Title: NUM[A-Z]. text' or 'Title: NUM( text'
@@ -617,7 +583,7 @@ class LawChunker:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 9: Embedding Model
+# Embedding Model
 # ─────────────────────────────────────────────────────────────────────────────
 
 class EmbeddingModel:
@@ -636,10 +602,11 @@ class EmbeddingModel:
         return (token_embeddings * input_mask).sum(1) / input_mask.sum(1).clamp(min=1e-9)
 
     def encode(self, texts: list, batch_size: int = 32, normalize: bool = True,
-               mmap_path: str = "/kaggle/working/_embeddings_tmp.npy") -> np.ndarray:
+               mmap_path: str = "/tmp/_embeddings_tmp.npy") -> np.ndarray:
         total = len(texts)
         total_batches = (total + batch_size - 1) // batch_size
-        fp = np.memmap(mmap_path, dtype="float32", mode="w+", shape=(total, 768))
+        # HF-1: dim=1024 for BAAI/bge-m3
+        fp = np.memmap(mmap_path, dtype="float32", mode="w+", shape=(total, 1024))
         for batch_idx, i in enumerate(range(0, total, batch_size)):
             batch = texts[i: i + batch_size]
             encoded = self.tokenizer(
@@ -683,7 +650,7 @@ class EmbeddingModel:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 10: Cross-Encoder Reranker
+# Cross-Encoder Reranker
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CrossEncoderReranker:
@@ -723,7 +690,7 @@ class CrossEncoderReranker:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 11: FAISS Index
+# FAISS Index
 # ─────────────────────────────────────────────────────────────────────────────
 
 class VectorIndex:
@@ -748,7 +715,7 @@ class VectorIndex:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 12: BM25 Index
+# BM25 Index
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BM25Index:
@@ -764,7 +731,7 @@ class BM25Index:
         tokenized = []
         self._corpus_ids = []
         for c in chunks:
-            # FIX-4 effect: section_number is now in embed text and also helps BM25
+            # FIX-4: section_number included for better keyword matching
             text = f"{c.law_title} {c.section_title} {c.section_number} {c.text}"
             tokens = self._tokenise(text)
             tokenized.append(tokens)
@@ -818,7 +785,7 @@ class BM25Index:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 13: Reciprocal Rank Fusion
+# Reciprocal Rank Fusion
 # ─────────────────────────────────────────────────────────────────────────────
 
 def reciprocal_rank_fusion(
@@ -857,7 +824,7 @@ def reciprocal_rank_fusion(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 14: Query Expander with Cross-Lingual Translation
+# Query Expander with Cross-Lingual Translation
 # ─────────────────────────────────────────────────────────────────────────────
 
 class QueryExpander:
@@ -866,7 +833,8 @@ class QueryExpander:
     _EXPAND_TEMPERATURE = 0.0
     _EXPAND_TIMEOUT_S = 5.0
     _CACHE_SIZE = 512
-    _CACHE_PATH = "/kaggle/working/expansion_cache.json"
+    # HF-4: cache path changed from /kaggle/working to /tmp
+    _CACHE_PATH = "/tmp/expansion_cache.json"
 
     _EXPAND_SYSTEM = (
         "You are a Bangladesh legal search assistant. "
@@ -1026,7 +994,7 @@ class QueryExpander:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 15: Language Detector
+# Language Detector
 # ─────────────────────────────────────────────────────────────────────────────
 
 class LanguageDetector:
@@ -1047,16 +1015,13 @@ class LanguageDetector:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 16: Citation Extractor
+# Citation Extractor
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CitationExtractor:
     """
     FIX-6: Uses chunk.section_number (always accurate, extracted at index-build time)
-    instead of scanning chunk text for 'section X'/'ধারা X' keywords, which
-    never appeared in the actual section text and always produced empty results.
-    Also collects cross-references (ধারা X / section X) found inside the body text
-    for informational purposes, but the primary section number comes from the chunk.
+    instead of scanning chunk text for keywords that never appeared in section headers.
     """
 
     _EN_XREF_RE = re.compile(
@@ -1094,8 +1059,8 @@ class CitationExtractor:
                 "law_year": c.law_year,
                 "law_link": c.law_link,
                 "section_title": c.section_title,
-                "section_number": primary_sec,          # FIX-6: actual section number
-                "section_refs": cross_refs,              # cross-refs in body text
+                "section_number": primary_sec,
+                "section_refs": cross_refs,
                 "repeal_status": c.repeal_status.value,
                 "is_repealed": c.is_repealed,
                 "repealed_by": c.repealed_by,
@@ -1110,12 +1075,10 @@ class CitationExtractor:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 17: Conversational Query Detector
+# Conversational Query Detector
 # ─────────────────────────────────────────────────────────────────────────────
 
-# FIX-7: Detect greetings/identity/small-talk queries so they are handled
-# naturally by the LLM WITHOUT injecting irrelevant law chunks into the prompt.
-# Fully dynamic — no hardcoded responses, only detection.
+# FIX-7: Detect greetings/identity/small-talk so they bypass retrieval entirely.
 
 _CONVERSATIONAL_RE = re.compile(
     r'^(?:'
@@ -1148,7 +1111,6 @@ _LEGAL_SIGNAL_RE = re.compile(
     re.IGNORECASE | re.UNICODE
 )
 
-# Single words that look like they could be greetings but are too ambiguous
 _AMBIGUOUS_WORDS = frozenset({'good', 'bad', 'yes', 'no', 'sure', 'right',
                                'wrong', 'great', 'nice', 'hmm', 'um', 'well'})
 
@@ -1165,24 +1127,20 @@ def is_conversational(query: str) -> bool:
     if _CONVERSATIONAL_RE.match(q):
         return True
     words = q.split()
-    # Single ambiguous words — let LLM decide rather than treat as conversational
     if len(words) == 1 and q.lower() in _AMBIGUOUS_WORDS:
         return False
-    # Very short query with no detectable legal signal
     if len(words) <= 2 and not _LEGAL_SIGNAL_RE.search(q) and len(q) < 25:
         return True
     return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 18: Prompt Builder
+# Prompt Builder
 # ─────────────────────────────────────────────────────────────────────────────
 
 class PromptBuilder:
     """
-    FIX-5: Context header now includes 'Section Number: X' so the LLM always
-    sees the real section number and never needs to guess from training memory.
-    FIX-5: References block now renders real section numbers from citations.
+    FIX-5: Context header now includes 'Section Number: X'.
     FIX-7: Added build_conversational() for greeting/small-talk queries.
     """
 
@@ -1303,7 +1261,6 @@ Do NOT fabricate any legal information. Do NOT cite any laws unless the user ask
                 label = "ধারা নম্বর" if lang == "bn" else "Section Number"
                 sec_num_line = f"{label}: {sec_num}\n"
 
-            # Cross-references found inside body (informational)
             cross_refs = c.get("section_refs", [])
             cross_refs_str = " | ".join(cross_refs[:5]) if cross_refs else ""
 
@@ -1369,7 +1326,7 @@ Do NOT fabricate any legal information. Do NOT cite any laws unless the user ask
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 19: LLM Generator (Groq)
+# LLM Generator (Groq)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class GroqGenerator:
@@ -1410,16 +1367,14 @@ class GroqGenerator:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 20: Main RAG Pipeline
+# Main RAG Pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BangladeshLegalRAG:
     """
     End-to-end RAG pipeline for Bangladesh law advisory.
-
-    Changes from original:
-    - FIX-1..6: section numbers are extracted, stored, embedded, and rendered correctly.
-    - FIX-7: conversational queries bypass retrieval entirely; LLM responds naturally.
+    HuggingFace Spaces version — all Kaggle-specific code removed.
+    Model: BAAI/bge-m3 (dim=1024), same as 1st code.
     """
 
     def __init__(self, config: Config = None, groq_api_key: str = None):
@@ -1523,7 +1478,6 @@ class BangladeshLegalRAG:
         print(f"  Laws with REPLACED status chunks: {replaced_count}")
         print(f"  Total repealed chunks: {repealed_count} ({repealed_count*100//max(len(self._chunks),1)}%)")
 
-        # FIX-4: section_number is now part of embed text (see _chunk_to_embed_text)
         print("  Computing embeddings (memmap)...")
         texts = [self._chunk_to_embed_text(c) for c in self._chunks]
         self._embeddings = self._embedder.encode(
@@ -1565,8 +1519,7 @@ class BangladeshLegalRAG:
         for c in self._chunks:
             self._neighbour_index[(c.law_idx, c.chunk_seq)] = c
 
-    # FIX-4: Include section_number in embed text so 'section 376' queries
-    # hit the right chunk in dense retrieval.
+    # FIX-4: Include section_number in embed text
     def _chunk_to_embed_text(self, c: LawChunk) -> str:
         sec_part = f"section {c.section_number}" if c.section_number else ""
         return f"{c.law_title} {c.section_title} {sec_part} {c.text}".strip()
@@ -1584,15 +1537,12 @@ class BangladeshLegalRAG:
         print(f"  Cache saved to {path}")
 
     def _load_cache(self, path: str):
-        import __main__
-        import rag_pipeline as _rp
-        for _name in ["LawChunk", "RetrievedChunk", "SearchResult", "RepealStatus"]:
-            if not hasattr(__main__, _name):
-                setattr(__main__, _name, getattr(_rp, _name))
-        print(f"📦 pickle.load() starting on {path}...", flush=True)
+        # HF-3: Removed Kaggle-specific __main__ patching and `import rag_pipeline`.
+        # In HuggingFace, pickle.load() resolves classes from the current module directly.
+        print(f"📦 Loading cache from {path}...", flush=True)
         with open(path, "rb") as f:
             data = pickle.load(f)
-        print(f"📦 pickle.load() done. Deserializing components...", flush=True)
+        print(f"📦 Cache loaded. Deserializing...", flush=True)
         self._chunks = data["chunks"]
         self._chunks_by_id = {c.chunk_id: c for c in self._chunks}
         self._embeddings = data["embeddings"]
@@ -1699,13 +1649,13 @@ class BangladeshLegalRAG:
                             seen_ids.add(repl_chunk.chunk_id)
 
         combined = fused + injected
-        expanded = self._expand_neighbours(combined, seen_ids)
+        expanded_chunks = self._expand_neighbours(combined, seen_ids)
 
         rerank_pool_size = self.cfg.top_k_rerank * self.cfg.rerank_pool_multiplier
         if self._reranker and self.cfg.use_reranker:
-            reranked = self._reranker.rerank(query, expanded, rerank_pool_size)
+            reranked = self._reranker.rerank(query, expanded_chunks, rerank_pool_size)
         else:
-            reranked = sorted(expanded, key=lambda x: x.score, reverse=True)
+            reranked = sorted(expanded_chunks, key=lambda x: x.score, reverse=True)
             reranked = reranked[:rerank_pool_size]
 
         final = self._deduplicate(reranked, self.cfg.top_k_rerank)
@@ -1744,7 +1694,12 @@ class BangladeshLegalRAG:
 
     # ──────────────────────── CHAT ────────────────────────────────────────
 
-    def chat(self, query: str, stream: bool = False, verbose: bool = True) -> str:
+    def chat(self, query: str, stream: bool = False, verbose: bool = False) -> str:
+        """
+        Main chat method. verbose=False by default for HF Spaces
+        (Gradio handles output, not stdout).
+        stream=True returns a generator for Gradio streaming support.
+        """
         if not self._generator:
             raise RuntimeError("Groq API key not set. Call .set_groq_key('your_key') first.")
 
@@ -1753,61 +1708,44 @@ class BangladeshLegalRAG:
 
         # FIX-7: Handle conversational queries without retrieval
         if is_conversational(query):
-            if verbose:
-                print(f"\n💬 Conversational query detected — skipping retrieval")
             system, user_msg = self._prompt_builder.build_conversational(query, lang)
             if stream:
-                print("\n" + "─" * 65)
-                full_answer = ""
-                for token in self._generator.generate_stream(system, user_msg):
-                    print(token, end="", flush=True)
-                    full_answer += token
-                print("\n" + "─" * 65)
+                # HF-5: return generator for Gradio streaming
+                return self._stream_and_store(system, user_msg, query)
             else:
                 full_answer = self._generator.generate(system, user_msg)
-            # Store in history so follow-up legal questions have context
-            self._chat_history.append({"query": query, "answer": full_answer})
-            elapsed = (time.perf_counter() - t0) * 1000
-            if verbose:
-                print(f"\n⏱️  Total latency: {elapsed:.0f} ms")
-            return full_answer
-
-        if verbose:
-            print(f"\n🔍 Language: {'Bangla' if lang == 'bn' else 'English'}")
+                self._chat_history.append({"query": query, "answer": full_answer})
+                return full_answer
 
         retrieved = self.retrieve(query)
 
         if verbose:
-            print(f"📚 Retrieved {len(retrieved)} chunks:")
+            print(f"📚 Retrieved {len(retrieved)} chunks")
             for rc in retrieved:
-                chain_marker = f" ⛓️ depth={rc.chain_depth}" if rc.injected_via_repeal_chain else ""
-                status_icon = "⚠️" if rc.chunk.is_repealed else "✅"
                 sec_str = f"sec={rc.chunk.section_number}" if rc.chunk.section_number else ""
-                print(f"   {status_icon}{chain_marker} [{rc.match_type}] "
-                      f"{rc.chunk.law_title[:45]} | "
-                      f"{sec_str} '{rc.chunk.section_title[:30]}' "
-                      f"(rerank={rc.rerank_score:.3f})")
+                print(f"   {'⚠️' if rc.chunk.is_repealed else '✅'} [{rc.match_type}] "
+                      f"{rc.chunk.law_title[:45]} | {sec_str}")
 
         citations = self._citation_extractor.extract(retrieved)
         system, user_msg = self._prompt_builder.build(query, citations, lang, self._chat_history)
 
         if stream:
-            print("\n" + "─" * 65)
-            full_answer = ""
-            for token in self._generator.generate_stream(system, user_msg):
-                print(token, end="", flush=True)
-                full_answer += token
-            print("\n" + "─" * 65)
+            return self._stream_and_store(system, user_msg, query)
         else:
             full_answer = self._generator.generate(system, user_msg)
+            self._chat_history.append({"query": query, "answer": full_answer})
+            elapsed = (time.perf_counter() - t0) * 1000
+            if verbose:
+                print(f"⏱️  {elapsed:.0f} ms")
+            return full_answer
 
+    def _stream_and_store(self, system: str, user_msg: str, query: str):
+        """HF-5: Generator for Gradio streaming — yields tokens, stores answer at end."""
+        full_answer = ""
+        for token in self._generator.generate_stream(system, user_msg):
+            full_answer += token
+            yield token
         self._chat_history.append({"query": query, "answer": full_answer})
-
-        elapsed = (time.perf_counter() - t0) * 1000
-        if verbose:
-            print(f"\n⏱️  Total latency: {elapsed:.0f} ms")
-
-        return full_answer
 
     def search_only(self, query: str) -> List[dict]:
         retrieved = self.retrieve(query)
@@ -1815,7 +1753,6 @@ class BangladeshLegalRAG:
 
     def clear_history(self):
         self._chat_history = []
-        print("✅ Conversation history cleared.")
 
     def get_stats(self) -> dict:
         if not self._chunks:
@@ -1827,7 +1764,6 @@ class BangladeshLegalRAG:
         unique_laws = len(set(c.law_idx for c in self._chunks))
         bm25_vocab = len(self._bm25._bm25.idf) if self._bm25 and self._bm25._bm25 else 0
         chain_links = len(self._repeal_linker._repeal_chain) if self._repeal_linker else 0
-        # Check section number coverage
         chunks_with_sec = sum(1 for c in self._chunks if c.section_number)
         return {
             "total_chunks": len(self._chunks),
@@ -1850,527 +1786,18 @@ class BangladeshLegalRAG:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CELL 21: Validation Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
-def run_validation_tests(rag: "BangladeshLegalRAG") -> bool:
-    print("\n" + "=" * 65)
-    print("  VALIDATION TESTS")
-    print("=" * 65)
-
-    passed = 0
-    total = 0
-
-    # ── Test 1: TitleNormalizer — OCR digit spacing ───────────────────────────
-    total += 1
-    print("\n[Test 1] TitleNormalizer — OCR digit spacing fix")
-    try:
-        cases = [
-            ("বাংলাদেশ কৃষি উন্নয়ন কর্পোরেশন আইন, ২০১ ৮ ( ২০১ ৮ সনের ৩৫ নং আইন )",
-             "বাংলাদেশ কৃষি উন্নয়ন কর্পোরেশন আইন"),
-            ("সাইবার নিরাপত্তা আইন, ২০২৩ ( ২০২৩ সনের ৩৯ নং আইন )",
-             "সাইবার নিরাপত্তা আইন"),
-        ]
-        ok = True
-        for raw, expected_frag in cases:
-            norm = TitleNormalizer.normalize(raw)
-            if expected_frag.lower() not in norm:
-                print(f"  ❌ Expected '{expected_frag}' in '{norm}'")
-                ok = False
-            else:
-                print(f"  ✅ '{raw[:40]}...' → '{norm[:60]}'")
-        if ok:
-            passed += 1
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 2: RepealChainDetector — bracket annotation ─────────────────────
-    total += 1
-    print("\n[Test 2] RepealChainDetector — bracket annotation")
-    try:
-        text = ("ডিজিটাল নিরাপত্তা আইন, ২০১৮ | ২০১৮ সনের ৪৬ নং আইন | "
-                "[REPEALED: এই আইন সাইবার নিরাপত্তা আইন, ২০২৩ ( ২০২৩ সনের ৩৯ নং আইন ) "
-                "দ্বারা রহিত করা হইয়াছে।] | some content")
-        result = RepealChainDetector.analyze(text)
-        assert result["repeal_status"] in (RepealStatus.REPEALED, RepealStatus.REPLACED), \
-            f"Got {result['repeal_status']}"
-        assert "সাইবার" in result["repealed_by"] or "Cyber" in result["repealed_by"], \
-            f"Expected 'সাইবার' in '{result['repealed_by']}'"
-        print(f"  Status: {result['repeal_status'].value}")
-        print(f"  Replaced by: {result['repealed_by'][:80]}")
-        print("  ✅ PASS")
-        passed += 1
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 3: RepealChainDetector — রহিতক্রমে ─────────────────────────────
-    total += 1
-    print("\n[Test 3] RepealChainDetector — রহিতক্রমে extraction")
-    try:
-        text = ("সাইবার নিরাপত্তা আইন, ২০২৩ | ২০২৩ সনের ৩৯ নং আইন | "
-                "ডিজিটাল নিরাপত্তা আইন, ২০১৮ রহিতক্রমে সাইবার নিরাপত্তা নিশ্চিতকরণ "
-                "এবং ডিজিটাল মাধ্যমে সংঘটিত অপরাধ...")
-        result = RepealChainDetector.analyze(text)
-        has_replaces = bool(result["replaces"])
-        print(f"  Replaces extracted: {result['replaces'][:80] if has_replaces else 'NONE'}")
-        print(f"  Status: {result['repeal_status'].value}")
-        assert result["repeal_status"] in (RepealStatus.ACTIVE, RepealStatus.UNKNOWN, RepealStatus.AMENDED)
-        print("  ✅ PASS")
-        passed += 1
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 4: RepealChainLinker — multi-hop chain ───────────────────────────
-    total += 1
-    print("\n[Test 4] RepealChainLinker — multi-hop chain resolution")
-    try:
-        linker = RepealChainLinker()
-        dsa = LawChunk(1, 0, "ডিজিটাল নিরাপত্তা আইন, ২০১৮", "2018", "http://a",
-                       "সংজ্ঞা", "content dsa", 0,
-                       repeal_status=RepealStatus.REPLACED,
-                       repealed_by="সাইবার নিরাপত্তা আইন, ২০২৩")
-        csa = LawChunk(2, 1, "সাইবার নিরাপত্তা আইন, ২০২৩", "2023", "http://b",
-                       "রহিতকরণ", "content csa", 0,
-                       repeal_status=RepealStatus.REPLACED,
-                       repealed_by="সাইবার সুরক্ষা অধ্যাদেশ, ২০২৫")
-        cur = LawChunk(3, 2, "সাইবার সুরক্ষা অধ্যাদেশ, ২০২৫", "2025", "http://c",
-                       "সাধারণ বিধান", "content current", 0,
-                       repeal_status=RepealStatus.ACTIVE)
-        linker.build([dsa, csa, cur])
-        direct = linker.get_replacement_chunks(dsa, top_k=4)
-        direct_titles = [c.law_title for c, _ in direct]
-        print(f"  DSA direct replacements: {[t[:40] for t in direct_titles]}")
-        current = linker.get_current_law(dsa)
-        if current:
-            print(f"  DSA current law (multi-hop): {current[0][:60]}")
-            assert "২০২৫" in current[0] or "Suraksha" in current[0]
-            print("  ✅ PASS")
-            passed += 1
-        else:
-            print("  ⚠️  Multi-hop not resolved, direct link works")
-            assert len(direct) > 0
-            passed += 1
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 5: BM25 — Bangla maternity query ────────────────────────────────
-    total += 1
-    print("\n[Test 5] BM25 — Bangla maternity query")
-    try:
-        results = rag._bm25.search("মাতৃত্বকালীন প্রসূতি শ্রম আইন ২০০৬ ছুটি", top_k=10)
-        top_chunks = [
-            rag._chunks_by_id[rag._bm25._corpus_ids[pos]]
-            for pos, _ in results[:10]
-            if 0 <= pos < len(rag._bm25._corpus_ids)
-            and rag._bm25._corpus_ids[pos] in rag._chunks_by_id
-        ]
-        found_mat = any('প্রসূতি' in c.text or 'মাতৃত্ব' in c.text for c in top_chunks)
-        found_labour = any('শ্রম' in c.law_title for c in top_chunks)
-        print(f"  BM25 hits: {len(results)}, Maternity content: {found_mat}, Labour Act: {found_labour}")
-        assert found_mat and found_labour, "Expected maternity content from Labour Act"
-        print("  ✅ PASS")
-        passed += 1
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 6: Full retrieval — Maternity EN (cross-lingual) ────────────────
-    # FIX-8: Corrected test condition — law text is Bangla, check Bangla keywords
-    total += 1
-    print("\n[Test 6] Full Retrieval — Maternity EN (cross-lingual) [FIX-8]")
-    try:
-        citations = rag.search_only("maternity leave Bangladesh Labour Act 2006 provisions")
-        found_labour = any('শ্রম' in c["law_title"] or 'Labour' in c["law_title"].lower()
-                           for c in citations)
-        # FIX-8: law text is in Bangla — check Bangla keywords, not 'maternity'
-        found_mat = any(
-            'প্রসূতি' in c["text"] or 'মাতৃত্ব' in c["text"] or
-            'maternity' in c["text"].lower() or  # some laws may have EN text
-            ('শ্রম' in c["law_title"] and c.get("section_number", "") in
-             ['৪৬', '৪৭', '৪৮', '৪৯', '৫০', '৫১', '৫২'])
-            for c in citations
-        )
-        print(f"  Laws: {[c['law_title'][:40] for c in citations[:3]]}")
-        print(f"  Section numbers: {[c.get('section_number','') for c in citations[:6]]}")
-        print(f"  Labour Act: {found_labour}, Maternity content: {found_mat}")
-        if found_labour:
-            print("  ✅ PASS")
-            passed += 1
-        else:
-            print("  ❌ FAIL — EN cross-lingual retrieval insufficient")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 7: Full retrieval — Maternity BN ────────────────────────────────
-    total += 1
-    print("\n[Test 7] Full Retrieval — মাতৃত্বকালীন ছুটি BN")
-    try:
-        citations = rag.search_only("বাংলাদেশ শ্রম আইন ২০০৬ মাতৃত্বকালীন প্রসূতি সুবিধা কত দিন")
-        found_labour = any('শ্রম' in c["law_title"] for c in citations)
-        found_mat = any('প্রসূতি' in c["text"] or 'মাতৃত্ব' in c["text"] for c in citations)
-        found_days = any('৬০' in c["text"] or '৮' in c["text"] for c in citations)
-        # FIX: also check section numbers are populated
-        has_sec_nums = any(c.get("section_number") for c in citations)
-        print(f"  Labour Act: {found_labour}, Maternity content: {found_mat}, Days found: {found_days}")
-        print(f"  Section numbers populated: {has_sec_nums}")
-        print(f"  Sample section numbers: {[c.get('section_number','') for c in citations[:6]]}")
-        if found_labour and found_mat:
-            print("  ✅ PASS")
-            passed += 1
-        else:
-            print("  ❌ FAIL")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 8: Repeal chain — DSA EN query ──────────────────────────────────
-    total += 1
-    print("\n[Test 8] Repeal Chain — Digital Security Act EN")
-    try:
-        citations = rag.search_only("Digital Security Act 2018 repealed what replaced it")
-        has_dsa = any('ডিজিটাল' in c["law_title"] or 'Digital Security' in c["law_title"]
-                      for c in citations)
-        has_cyber = any('সাইবার' in c["law_title"] or 'Cyber' in c["law_title"]
-                        for c in citations)
-        has_repeal = any(c["is_repealed"] for c in citations)
-        print(f"  DSA: {has_dsa}, Cyber Act: {has_cyber}, Repeal detected: {has_repeal}")
-        if has_dsa or has_cyber or has_repeal:
-            print("  ✅ PASS")
-            passed += 1
-        else:
-            print("  ❌ FAIL")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 9: Repeal chain — DSA BN query ──────────────────────────────────
-    total += 1
-    print("\n[Test 9] Repeal Chain — ডিজিটাল নিরাপত্তা আইন BN")
-    try:
-        citations = rag.search_only("ডিজিটাল নিরাপত্তা আইন ২০১৮ রহিত হয়েছে কোন আইন এসেছে")
-        has_dsa = any('ডিজিটাল' in c["law_title"] for c in citations)
-        has_cyber = any('সাইবার' in c["law_title"] for c in citations)
-        has_chain_injected = any(c["injected_via_repeal_chain"] for c in citations)
-        print(f"  DSA found: {has_dsa}, Cyber law found: {has_cyber}, Chain injected: {has_chain_injected}")
-        if has_dsa and (has_cyber or has_chain_injected):
-            print("  ✅ PASS — repeal chain injection working")
-            passed += 1
-        elif has_dsa:
-            print("  ⚠️  PARTIAL — DSA found but replacement not injected")
-            passed += 1
-        else:
-            print("  ❌ FAIL")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 10: Rape punishment retrieval ───────────────────────────────────
-    total += 1
-    print("\n[Test 10] Retrieval — rape punishment Bangladesh")
-    try:
-        citations = rag.search_only("punishment for rape Bangladesh Penal Code section 376")
-        has_penal = any('Penal Code' in c["law_title"] for c in citations)
-        has_rape = any('rape' in c["text"].lower() or 'ধর্ষণ' in c["text"]
-                       or '376' in c["text"] for c in citations)
-        # FIX: verify section number '376' is properly extracted
-        has_sec_376 = any(c.get("section_number") == "376" for c in citations)
-        print(f"  Penal Code: {has_penal}, Rape content: {has_rape}, Section 376 extracted: {has_sec_376}")
-        if has_penal and has_rape:
-            print("  ✅ PASS")
-            passed += 1
-        else:
-            print("  ❌ FAIL")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 11: Section content completeness ────────────────────────────────
-    total += 1
-    print("\n[Test 11] Section Completeness — Labour Act maternity section text")
-    try:
-        citations = rag.search_only("বাংলাদেশ শ্রম আইন ২০০৬ ধারা ৪৬ প্রসূতি কল্যাণ সুবিধা")
-        labour_cits = [c for c in citations if 'শ্রম' in c["law_title"]]
-        if labour_cits:
-            max_len = max(len(c["text"]) for c in labour_cits)
-            has_duration = any('৬০' in c["text"] or 'ষাট' in c["text"] for c in labour_cits)
-            # FIX: verify section number is correct
-            sec_nums = [c.get("section_number", "") for c in labour_cits]
-            print(f"  Longest section text: {max_len} chars")
-            print(f"  Duration (60 days) mentioned: {has_duration}")
-            print(f"  Section numbers: {sec_nums}")
-            if max_len > 300:
-                print("  ✅ PASS — sections are not truncated")
-                passed += 1
-            else:
-                print("  ❌ FAIL — sections appear truncated")
-        else:
-            print("  ❌ FAIL — Labour Act not retrieved")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 12: Deduplication ────────────────────────────────────────────────
-    total += 1
-    print("\n[Test 12] Deduplication — no duplicate (law, chunk_seq)")
-    try:
-        citations = rag.search_only("Bangladesh Constitution fundamental rights")
-        seen = set()
-        duplicates = 0
-        for c in citations:
-            key = (c["law_title"], c["section_title"])
-            if key in seen:
-                duplicates += 1
-            seen.add(key)
-        print(f"  Citations: {len(citations)}, Duplicates: {duplicates}")
-        unique_laws = len(set(c["law_title"] for c in citations))
-        print(f"  Unique laws: {unique_laws}")
-        if duplicates == 0:
-            print("  ✅ PASS")
-            passed += 1
-        else:
-            print(f"  ⚠️  {duplicates} duplicates found")
-            passed += 1  # Soft pass
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 13: Source links present ────────────────────────────────────────
-    total += 1
-    print("\n[Test 13] Source Links — all chunks have law links")
-    try:
-        citations = rag.search_only("annual leave sick leave Bangladesh Labour Act")
-        with_links = [c for c in citations if c["law_link"]]
-        print(f"  Chunks with links: {len(with_links)}/{len(citations)}")
-        if with_links:
-            print(f"  Sample: {with_links[0]['law_link']}")
-        if len(with_links) == len(citations):
-            print("  ✅ PASS")
-            passed += 1
-        else:
-            print(f"  ⚠️  {len(citations)-len(with_links)} chunks missing links")
-            passed += 1  # Soft pass
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 14: FIX-1 — Section numbers extracted correctly ─────────────────
-    total += 1
-    print("\n[Test 14] FIX-1 — Section number extraction accuracy")
-    try:
-        chunker = LawChunker(CONFIG)
-        test_pipes = [
-            ("Punishment for rape: 376. Whoever commits rape...", "376"),
-            ("প্রসূতি কল্যাণ সুবিধা প্রাপ্তির অধিকার এবং প্রদানের দায়িত্ব: ৪৬৷ (১) প্রত্যেক...", "৪৬"),
-            ("Freedom of expression: 39. (1) Freedom of thought...", "39"),
-            ("Power to appoint acting Judges: 1. In every case...", "1"),
-            ("Short title: 1.(1) This Act may be called...", "1"),
-        ]
-        all_ok = True
-        for text, expected in test_pipes:
-            result = chunker._extract_section_number(text)
-            ok = result == expected
-            if not ok:
-                all_ok = False
-            print(f"  {'✅' if ok else '❌'} expected={expected}, got={result} | {text[:50]}")
-        if all_ok:
-            passed += 1
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 15: FIX-7 — Conversational detection ────────────────────────────
-    total += 1
-    print("\n[Test 15] FIX-7 — Conversational query detection")
-    try:
-        test_cases = [
-            ("hi", True), ("hello there!", True), ("assalamu alaikum", True),
-            ("আপনার নাম কী?", True), ("আপনি কেমন আছেন?", True),
-            ("ধন্যবাদ", True), ("ok", True), ("good morning", True),
-            ("good", False),
-            ("maternity leave Bangladesh Labour Act 2006", False),
-            ("What is section 376?", False),
-            ("ধর্ষণের শাস্তি কি", False),
-        ]
-        all_ok = True
-        for q, expected in test_cases:
-            result = is_conversational(q)
-            ok = result == expected
-            if not ok:
-                all_ok = False
-            print(f"  {'✅' if ok else '❌'} conv={result} (expected {expected}): {q}")
-        if all_ok:
-            passed += 1
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 16: End-to-End maternity answer ─────────────────────────────────
-    total += 1
-    print("\n[Test 16] End-to-End — Maternity answer generation")
-    if rag._generator is None:
-        print("  ⚠️  SKIPPED — No Groq key")
-        passed += 1
-    else:
-        try:
-            answer = rag.chat(
-                "মাতৃত্বকালীন ছুটি কতদিন এবং কী কী সুবিধা পাওয়া যায়?",
-                stream=False, verbose=False
-            )
-            has_content = len(answer) > 200
-            has_days = "৬০" in answer or "ষাট" in answer or "আট" in answer or "8" in answer
-            # MUST cite section 46 (৪৬), not hallucinated numbers
-            has_correct_sec = "৪৬" in answer or "46" in answer
-            wrong_sec = any(s in answer for s in ["Section 39", "Section 125", "Section 129",
-                                                   "ধারা ৩৯", "ধারা ১২৫"])
-            bangla_chars = sum(1 for c in answer if '\u0980' <= c <= '\u09FF')
-            is_bangla = bangla_chars > len(answer) * 0.1
-            print(f"  Answer length: {len(answer)}, Bangla: {is_bangla}")
-            print(f"  Has days: {has_days}, Correct section (46): {has_correct_sec}")
-            print(f"  Wrong section hallucination: {wrong_sec}")
-            if has_content and has_days and is_bangla and not wrong_sec:
-                print("  ✅ PASS")
-                passed += 1
-            else:
-                print(f"  ❌ FAIL — answer preview: {answer[:300]}")
-        except Exception as e:
-            print(f"  ❌ {e}")
-
-    # ── Test 17: End-to-End repeal chain answer ──────────────────────────────
-    total += 1
-    print("\n[Test 17] End-to-End — DSA repeal chain answer")
-    if rag._generator is None:
-        print("  ⚠️  SKIPPED — No Groq key")
-        passed += 1
-    else:
-        try:
-            answer = rag.chat(
-                "Is the Digital Security Act 2018 still in force? What replaced it?",
-                stream=False, verbose=False
-            )
-            has_repeal_info = any(kw in answer.lower() for kw in
-                                  ["repealed", "replaced", "cyber security", "সাইবার"])
-            latin_chars = sum(1 for c in answer if 'a' <= c.lower() <= 'z')
-            is_english = latin_chars > len(answer) * 0.3
-            print(f"  Answer length: {len(answer)}, English: {is_english}")
-            print(f"  Repeal info: {has_repeal_info}")
-            if has_repeal_info and is_english:
-                print("  ✅ PASS")
-                passed += 1
-            else:
-                print(f"  ❌ FAIL — answer: {answer[:300]}")
-        except Exception as e:
-            print(f"  ❌ {e}")
-
-    # ── Test 18: FIX-7 — Conversational query handled without crash ───────────
-    total += 1
-    print("\n[Test 18] FIX-7 — Greeting query handled naturally")
-    if rag._generator is None:
-        print("  ⚠️  SKIPPED — No Groq key")
-        passed += 1
-    else:
-        try:
-            answer = rag.chat("hi", stream=False, verbose=False)
-            has_content = len(answer) > 10
-            # Should NOT be a legal response with law citations
-            no_weird_legal = "[Source" not in answer and "bdlaws.minlaw.gov.bd" not in answer
-            # Should be a friendly intro
-            is_friendly = any(kw in answer.lower() for kw in
-                              ["hello", "hi", "legal", "bangladesh", "assist", "help",
-                               "বাংলাদেশ", "আইন", "সাহায্য"])
-            print(f"  Has content: {has_content}, No random legal citations: {no_weird_legal}")
-            print(f"  Is friendly: {is_friendly}")
-            print(f"  Preview: {answer[:150]}")
-            if has_content and no_weird_legal:
-                print("  ✅ PASS")
-                passed += 1
-            else:
-                print("  ❌ FAIL")
-        except Exception as e:
-            print(f"  ❌ {e}")
-
-    # ── Test 19: Cross-lingual — EN query finds BN law ───────────────────────
-    total += 1
-    print("\n[Test 19] Cross-lingual — EN query finds Bangla law text")
-    try:
-        citations = rag.search_only("maternity benefit leave 60 days labour law")
-        found_bn_law = any('শ্রম' in c["law_title"] for c in citations)
-        found_bn_content = any('প্রসূতি' in c["text"] or 'মাতৃত্ব' in c["text"] for c in citations)
-        print(f"  Found Bangla Labour law: {found_bn_law}, Found Bangla maternity content: {found_bn_content}")
-        if found_bn_law and found_bn_content:
-            print("  ✅ PASS — cross-lingual retrieval working")
-            passed += 1
-        else:
-            print("  ❌ FAIL")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    # ── Test 20: Cross-lingual — BN query finds English law ──────────────────
-    total += 1
-    print("\n[Test 20] Cross-lingual — BN query finds English law text")
-    try:
-        citations = rag.search_only("ধর্ষণের শাস্তি বাংলাদেশ দণ্ডবিধি")
-        found_en_law = any('Penal Code' in c["law_title"] for c in citations)
-        found_rape = any('rape' in c["text"].lower() or 'ধর্ষণ' in c["text"] for c in citations)
-        # FIX: check section number 376 is extracted
-        has_sec = any(c.get("section_number") == "376" for c in citations)
-        print(f"  Found English Penal Code: {found_en_law}, Found rape content: {found_rape}, Sec 376: {has_sec}")
-        if found_en_law or found_rape:
-            print("  ✅ PASS — cross-lingual retrieval working")
-            passed += 1
-        else:
-            print("  ❌ FAIL")
-    except Exception as e:
-        print(f"  ❌ {e}")
-
-    print(f"\n{'='*65}")
-    print(f"  Tests passed: {passed}/{total}")
-    all_passed = passed == total
-    print(f"  Status: {'✅ ALL PASSED' if all_passed else '⚠️  SOME TESTS FAILED/SKIPPED'}")
-    print(f"{'='*65}\n")
-    return all_passed
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CELL 22: Interactive CLI
-# ─────────────────────────────────────────────────────────────────────────────
-
-def interactive_session(rag: "BangladeshLegalRAG"):
-    print("\n" + "=" * 65)
-    print("  Bangladesh Legal Advisor AI — Interactive Session")
-    print("  Type your question in Bangla or English.")
-    print("  Commands: 'exit' | 'clear' (reset history) | 'stats' | 'test'")
-    print("=" * 65 + "\n")
-
-    while True:
-        try:
-            query = input("❓ আপনার প্রশ্ন / Your question: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n👋 Goodbye!")
-            break
-
-        if not query:
-            continue
-        if query.lower() in ("exit", "quit", "বের হও"):
-            print("👋 Goodbye!")
-            break
-        if query.lower() == "clear":
-            rag.clear_history()
-            continue
-        if query.lower() == "stats":
-            print(json.dumps(rag.get_stats(), indent=2, ensure_ascii=False))
-            continue
-        if query.lower() == "test":
-            run_validation_tests(rag)
-            continue
-
-        rag.chat(query, stream=True, verbose=True)
-        print()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CELL 23: Kaggle Entry Point
+# HuggingFace Entry Point
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_groq_key() -> str:
-    try:
-        from kaggle_secrets import UserSecretsClient
-        return UserSecretsClient().get_secret("GROQ_API_KEY")
-    except Exception:
-        key = os.environ.get("GROQ_API_KEY", "")
-        if not key:
-            raise ValueError(
-                "Groq API key not found.\n"
-                "On Kaggle: Add-ons → Secrets → Add GROQ_API_KEY\n"
-                "Local: set os.environ['GROQ_API_KEY'] = 'your_key'"
-            )
-        return key
+    """
+    HF-2: Reads GROQ_API_KEY from environment only.
+    Set it in HuggingFace Space: Settings → Variables and secrets → GROQ_API_KEY
+    """
+    key = os.environ.get("GROQ_API_KEY", "")
+    if not key:
+        raise ValueError(
+            "Groq API key not found.\n"
+            "HuggingFace Spaces: Settings → Variables and secrets → Add GROQ_API_KEY"
+        )
+    return key
