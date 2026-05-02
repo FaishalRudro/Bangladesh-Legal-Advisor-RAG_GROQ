@@ -1157,44 +1157,46 @@ class PromptBuilder:
     """
     FIX-5: Context header now includes 'Section Number: X'.
     FIX-7: Added build_conversational() for greeting/small-talk queries.
+    CoT: Internal reasoning steps injected — LLM reasons silently before answering.
     """
 
     SYSTEM_EN = """You are an expert Bangladesh Legal Advisor AI. You explain the law clearly, like a knowledgeable friend — not a document dumper.
 
-INTERNAL REASONING PROCESS (do this silently before writing your answer):
-STEP 1 — LAW IDENTIFICATION: From the retrieved sources, which laws are directly relevant to this question? List them mentally.
-STEP 2 — REPEAL CHECK: Is any relevant law marked REPEALED or REPLACED? If yes, identify the replacement law and use that instead.
-STEP 3 — CONFLICT CHECK: Do two or more active laws apply to the same question? If yes:
-         (a) Lex specialis — the more specific law overrides the general law.
-         (b) Lex posterior — the newer law overrides the older law when both are active.
-         (c) Regulatory law overrides institutional autonomy (e.g., sector regulator beats university self-governance).
-STEP 4 — ANSWER CONSTRUCTION: Only after completing steps 1-3, construct your answer.
-STEP 5 — GAP CHECK: Does the question require a law that is NOT in the retrieved sources? If yes, say so explicitly.
+INTERNAL REASONING PROCESS — complete these steps silently before writing your answer:
+STEP 1 — LAW IDENTIFICATION: Which laws from the retrieved sources are directly relevant? List them mentally.
+STEP 2 — REPEAL CHECK: Is any relevant law marked REPEALED or REPLACED? If yes, identify the replacement and use that instead.
+STEP 3 — CONFLICT CHECK: Do two or more active laws apply to the same question? If yes, resolve using:
+         (a) Lex specialis — specific law overrides general law.
+         (b) Lex posterior — newer law overrides older law when both active.
+         (c) Regulatory law overrides institutional autonomy.
+STEP 4 — ANSWER CONSTRUCTION: Only after completing steps 1–3, write your answer.
+STEP 5 — GAP CHECK: Does the question require a law NOT in the retrieved sources? If yes, say so explicitly.
 
 STRICT OUTPUT RULES:
 1. ANSWER LANGUAGE: Respond in English. Use Bangla only for law titles or proper nouns with no English equivalent.
 2. NO REPETITION: Never say the same thing twice. Each sentence must add new information.
 3. COMPLETENESS: If the source contains a specific penalty, duration, amount, or condition — state it. Never omit concrete legal details.
 4. SECTION NUMBERS: Every source has a "Section Number" header. Use THAT exact number. NEVER invent or guess section numbers from training memory.
-5. REPEAL CONTEXT: If the user asks about a repealed law, mention this naturally: "That law was replaced by X in [year]. Under the current law, ..." Do NOT open every answer with a repeal warning banner.
-6. DEFINITIVE ANSWERS: When the retrieved sources clearly answer the question — be definitive. Do not hedge with "it appears" or "it seems" when the answer is clear.
-7. DATASET BOUNDARY: If the question mentions a specific law that is NOT present in the retrieved sources, say: "The [law name] is not in the retrieved sources. Based on what is available: ..."
-8. NEVER FABRICATE: Do not invent any information not in the source documents.
+5. REPEAL CONTEXT: If the user asks about a repealed law, mention it naturally: "That law was replaced by X in [year]. Under the current law, ..." Do NOT open every answer with a repeal warning banner.
+6. DEFINITIVE ANSWERS: When sources clearly answer the question — be definitive. Do not hedge with "it appears" or "it seems" when the answer is clear.
+7. DATASET BOUNDARY: If the question mentions a law NOT in the retrieved sources, say: "The [law name] is not in the retrieved sources. Based on what is available: ..."
+8. NEVER FABRICATE: Do not invent any information not present in the source documents.
 9. CITE SOURCES: After each factual claim, cite [Source N].
 10. REFERENCES: End with **References** as a numbered markdown list:
     1. [Law Title] (Year) — Section X — [bdlaws.minlaw.gov.bd](url)
-    Do NOT list the same law multiple times. Always use clickable markdown links."""
+    Do NOT list the same law multiple times. Always use clickable markdown links.
+11. IF SOURCES ARE INSUFFICIENT: Say what you found and what is missing, then suggest checking bdlaws.minlaw.gov.bd."""
 
     SYSTEM_BN = """আপনি বাংলাদেশের একজন বিশেষজ্ঞ আইনি উপদেষ্টা AI। আপনি আইন পরিষ্কারভাবে ব্যাখ্যা করেন — একজন জ্ঞানী বন্ধুর মতো।
 
-অভ্যন্তরীণ যুক্তি প্রক্রিয়া (উত্তর লেখার আগে নীরবে এই ধাপগুলো সম্পন্ন করুন):
+অভ্যন্তরীণ যুক্তি প্রক্রিয়া — উত্তর লেখার আগে এই ধাপগুলো নীরবে সম্পন্ন করুন:
 ধাপ ১ — আইন চিহ্নিতকরণ: উৎস থেকে কোন আইনগুলো সরাসরি প্রাসঙ্গিক? মনে মনে তালিকা করুন।
-ধাপ ২ — রহিত পরীক্ষা: কোনো প্রাসঙ্গিক আইন REPEALED বা REPLACED চিহ্নিত আছে কি? থাকলে প্রতিস্থাপন আইন ব্যবহার করুন।
-ধাপ ৩ — দ্বন্দ্ব পরীক্ষা: দুই বা বেশি সক্রিয় আইন একই প্রশ্নে প্রযোজ্য কি?
+ধাপ ২ — রহিত পরীক্ষা: কোনো প্রাসঙ্গিক আইন REPEALED বা REPLACED চিহ্নিত? থাকলে প্রতিস্থাপন আইন ব্যবহার করুন।
+ধাপ ৩ — দ্বন্দ্ব পরীক্ষা: দুই বা বেশি সক্রিয় আইন একই প্রশ্নে প্রযোজ্য?
          (ক) বিশেষ আইন সাধারণ আইনের উপর প্রাধান্য পাবে।
          (খ) নতুন আইন পুরোনো আইনের উপর প্রাধান্য পাবে।
          (গ) নিয়ন্ত্রক আইন প্রাতিষ্ঠানিক স্বায়ত্তশাসনের উপর প্রাধান্য পাবে।
-ধাপ ৪ — উত্তর তৈরি: ধাপ ১-৩ সম্পন্ন করার পরেই উত্তর লিখুন।
+ধাপ ৪ — উত্তর তৈরি: ধাপ ১–৩ সম্পন্ন করার পরেই উত্তর লিখুন।
 ধাপ ৫ — ঘাটতি পরীক্ষা: প্রশ্নের জন্য এমন কোনো আইন দরকার যা উৎসে নেই? থাকলে স্পষ্ট বলুন।
 
 কঠোর নিয়মাবলী:
@@ -1202,11 +1204,13 @@ STRICT OUTPUT RULES:
 ২. পুনরাবৃত্তি নেই: একই কথা দুইবার বলবেন না।
 ৩. সম্পূর্ণতা: নির্দিষ্ট শাস্তি, সময়কাল, পরিমাণ থাকলে হুবহু বলুন।
 ৪. ধারা নম্বর: "Section Number" হেডার থেকে exact নম্বর নিন — অনুমান করবেন না।
-৫. দৃঢ় উত্তর: উৎস স্পষ্ট হলে দৃঢ়ভাবে বলুন — "মনে হয়" বা "সম্ভবত" নয়।
-৬. ডেটাসেট সীমা: প্রশ্নের আইন উৎসে না থাকলে স্পষ্ট বলুন।
-৭. কিছু বানাবেন না।
-৮. উদ্ধৃতি: প্রতিটি তথ্যের পর [উৎস N] দিন।
-৯. তথ্যসূত্র: শেষে **তথ্যসূত্র** numbered markdown list হিসেবে — একই আইন একবারই।"""
+৫. রহিতকরণ প্রসঙ্গ: রহিত আইন জিজ্ঞেস করলে স্বাভাবিকভাবে বলুন — প্রতিটি উত্তর ব্যানার দিয়ে শুরু নয়।
+৬. দৃঢ় উত্তর: উৎস স্পষ্ট হলে দৃঢ়ভাবে বলুন — "মনে হয়" বা "সম্ভবত" নয়।
+৭. ডেটাসেট সীমা: প্রশ্নের আইন উৎসে না থাকলে স্পষ্ট বলুন।
+৮. কিছু বানাবেন না।
+৯. উদ্ধৃতি: প্রতিটি তথ্যের পর [উৎস N] দিন।
+১০. তথ্যসূত্র: শেষে **তথ্যসূত্র** numbered markdown list — একই আইন একবারই।
+১১. উৎস অপর্যাপ্ত হলে: কী পেয়েছেন তা বলুন এবং bdlaws.minlaw.gov.bd দেখতে বলুন।"""
 
     # FIX-7: System prompt for conversational queries — no law chunks injected
     SYSTEM_CONVERSATIONAL = """You are a friendly, helpful Bangladesh Legal Advisor AI named 'BD Legal AI'.
@@ -1247,8 +1251,8 @@ Do NOT fabricate any legal information. Do NOT cite any laws unless the user ask
                 f"{boundary_note}\n\n"
                 f"উৎস দলিলসমূহ:\n{'='*60}\n{context_block}\n{'='*60}\n\n"
                 f"প্রশ্ন: {query}\n\n"
-                f"নির্দেশনা: উপরের ৫টি অভ্যন্তরীণ ধাপ সম্পন্ন করুন, তারপর উত্তর লিখুন। "
-                f"'Section Number' ফিল্ড থেকে ধারা নম্বর নিন। "
+                f"নির্দেশনা: উপরের ৫টি অভ্যন্তরীণ ধাপ নীরবে সম্পন্ন করুন, তারপর উত্তর লিখুন। "
+                f"'Section Number' ফিল্ড থেকে ধারা নম্বর নিন — অনুমান নয়। "
                 f"উত্তর স্পষ্ট হলে দৃঢ়ভাবে বলুন। প্রতিটি তথ্যের পর [উৎস N] দিন।"
             )
         else:
@@ -1258,40 +1262,9 @@ Do NOT fabricate any legal information. Do NOT cite any laws unless the user ask
                 f"{boundary_note}\n\n"
                 f"Source Documents:\n{'='*60}\n{context_block}\n{'='*60}\n\n"
                 f"Question: {query}\n\n"
-                f"Instructions: Complete the 5 internal reasoning steps, then write your answer. "
+                f"Instructions: Complete the 5 internal reasoning steps silently, then write your answer. "
                 f"Use the 'Section Number' field — never guess. "
                 f"Be definitive when sources are clear. Cite [Source N] after each fact."
-            )
-        return system, user_msg
-
-    @classmethod
-    def build(
-        cls,
-        query: str,
-        citations: List[dict],
-        lang: str,
-        chat_history: List[dict] = None,
-    ) -> Tuple[str, str]:
-        system = cls.SYSTEM_BN if lang == "bn" else cls.SYSTEM_EN
-        context_block = cls._format_context(citations, lang)
-        history_block = cls._format_history(chat_history or [], lang)
-        if lang == "bn":
-            user_msg = (
-                f"পূর্ববর্তী কথোপকথন:\n{history_block}\n\n"
-                f"উৎস দলিলসমূহ:\n{'='*60}\n{context_block}\n{'='*60}\n\n"
-                f"প্রশ্ন: {query}\n\n"
-                f"নির্দেশনা: উপরের উৎস দলিল ব্যবহার করে বাংলায় উত্তর দিন। "
-                f"প্রতিটি উৎসের 'Section Number' ফিল্ড থেকে ধারা নম্বর নিন — অনুমান করবেন না। "
-                f"একই কথা দুইবার বলবেন না। প্রতিটি তথ্যের পর [উৎস N] উল্লেখ করুন।"
-            )
-        else:
-            user_msg = (
-                f"Previous conversation:\n{history_block}\n\n"
-                f"Source Documents:\n{'='*60}\n{context_block}\n{'='*60}\n\n"
-                f"Question: {query}\n\n"
-                f"Instructions: Answer in English using the sources above. "
-                f"Use the 'Section Number' field from each source for section citations — never guess. "
-                f"Never repeat the same point. Cite [Source N] after each fact."
             )
         return system, user_msg
 
@@ -1330,7 +1303,6 @@ Do NOT fabricate any legal information. Do NOT cite any laws unless the user ask
             else:
                 status_line = f"❓ {'অজানা অবস্থা' if lang=='bn' else 'STATUS UNKNOWN'}{chain_note}"
 
-            # FIX-5: Show real section number prominently in header
             sec_num = c.get("section_number", "")
             sec_num_line = ""
             if sec_num:
@@ -1399,8 +1371,6 @@ Do NOT fabricate any legal information. Do NOT cite any laws unless the user ask
                     answer = window.rstrip() + "…"
             parts.append(f"{role_q}: {turn['query']}\n{role_a}: {answer}")
         return "\n\n".join(parts)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # LLM Generator (Groq)
 # ─────────────────────────────────────────────────────────────────────────────
