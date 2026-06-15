@@ -73,6 +73,7 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          HF_URL="https://RudroBoss:${HF_TOKEN}@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor"
+          # Use token-only auth (no username prefix) — required for HF access tokens
+          HF_URL="https://user:${HF_TOKEN}@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor"
           git remote add space "$HF_URL"
           git push space main --force
