@@ -153,9 +153,9 @@ class Generator:
             # --- Log CoT reasoning trace (never shown to user) ---
             r = data.get("reasoning", {})
             logger.info(
-                f"Generator CoT | intent: {r.get('question_intent','')} | "
-                f"direct_answer: {r.get('direct_answer_available','')} | "
-                f"gaps: {r.get('gaps','')}"
+                f"Generator CoT | intent: {r.get('question_intent', '')} | "
+                f"direct_answer: {r.get('direct_answer_available', '')} | "
+                f"gaps: {r.get('gaps', '')}"
             )
 
             header = "বাংলাদেশ লিগ্যাল এডভাইজার" if language == "bn" else "Bangladesh Legal Advisor"

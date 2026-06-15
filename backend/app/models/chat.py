@@ -33,7 +33,7 @@ class Feedback(Base):
     id = Column(Integer, primary_key=True, index=True)
     message_id = Column(Integer, ForeignKey("chat_messages.id"), nullable=False, index=True)
     lawyer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    is_good = Column(Boolean, nullable=True) # True=Thumbs up, False=Thumbs down
+    is_good = Column(Boolean, nullable=True)  # True=Thumbs up, False=Thumbs down
     feedback_text = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

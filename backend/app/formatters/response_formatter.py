@@ -29,14 +29,10 @@ class ScholarlyResponseFormatter:
         )
 
     def _build_sources(self, chunks) -> list[Source]:
-        seen = set()
         sources = []
         for chunk in chunks:
             m = chunk["metadata"]
-            # We don't deduplicate by page anymore, because multiple chunks can be on the same page
-            # and the user requested to see ALL picked contexts.
             score = chunk.get("score", 0.0)
-            
             sources.append(Source(
                 law_name=m.get("law_name") or m.get("law_title") or m.get("source_file", ""),
                 year=m.get("year", ""),
@@ -56,6 +52,8 @@ class ScholarlyResponseFormatter:
         if not chunks:
             return "not_found"
         max_score = max(c.get("score", 0.0) for c in chunks)
-        if max_score >= 0.75: return "high"
-        if max_score >= 0.50: return "medium"
+        if max_score >= 0.75:
+            return "high"
+        if max_score >= 0.50:
+            return "medium"
         return "low"

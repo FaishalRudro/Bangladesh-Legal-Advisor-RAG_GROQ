@@ -43,7 +43,7 @@ class Ingestor:
         embeddings = self.embedder.embed_documents(texts)
 
         # 3. Upsert to ChromaDB in batches
-        batch_size = 5000 # Chroma recommended max batch size
+        batch_size = 5000  # Chroma recommended max batch size
         for i in range(0, len(texts), batch_size):
             self.collection.upsert(
                 ids=ids[i:i + batch_size],
@@ -78,8 +78,7 @@ def delete_law(db: chromadb.Client, law_id: str):
         metadata={"hnsw:space": "cosine"}
     )
     collection.delete(where={"law_id": law_id})
-    
+
     # 2. Remove from law registry
     registry = db.get_or_create_collection(name=settings.LAW_REGISTRY_COLLECTION)
     registry.delete(ids=[law_id])
-

@@ -28,7 +28,7 @@ class ProfileService:
         otp = generate_otp()
         password_change_otps[current_user.email] = {
             "otp": otp,
-            "expires_at": datetime.utcnow() + timedelta(minutes=10) # 10 mins expiry
+            "expires_at": datetime.utcnow() + timedelta(minutes=10)  # 10 mins expiry
         }
         
         await send_password_change_otp_email(current_user.email, otp)

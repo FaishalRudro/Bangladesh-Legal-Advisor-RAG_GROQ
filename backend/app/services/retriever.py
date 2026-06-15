@@ -68,7 +68,7 @@ class Retriever:
         for i in range(len(results.get('documents', []))):
             docs = results['documents'][i]
             metas = results['metadatas'][i]
-            distances = results.get('distances', [[0.0]*len(docs)])[i]
+            distances = results.get('distances', [[0.0] * len(docs)])[i]
             ids = results['ids'][i]
             
             for doc_id, doc, meta, dist in zip(ids, docs, metas, distances):

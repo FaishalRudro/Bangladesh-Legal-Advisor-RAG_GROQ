@@ -38,7 +38,7 @@ def process_ingestion(db: chromadb.Client, limit: int = 0):
         law_name = pipe_parts[0] if pipe_parts else "Unknown Law"
         
         # Simple ID generation or assignment
-        law_id = f"law_{idx+1}"
+        law_id = f"law_{idx + 1}"
         
         law_dict = {
             "law_id": law_id,
@@ -63,7 +63,7 @@ def process_ingestion(db: chromadb.Client, limit: int = 0):
                     "total_chunks": total_chunks,
                     "ingested_at": datetime.utcnow().isoformat()
                 })
-                print(f"Ingested {law_name} with {total_chunks} chunks. ({idx+1}/{len(laws)})")
+                print(f"Ingested {law_name} with {total_chunks} chunks. ({idx + 1}/{len(laws)})")
         except Exception as e:
             print(f"Failed to ingest {law_name}: {e}")
 

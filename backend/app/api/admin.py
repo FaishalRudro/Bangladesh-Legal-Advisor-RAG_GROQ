@@ -22,7 +22,7 @@ Includes the feedback text, the lawyer who provided it, and the associated messa
 )
 async def get_all_feedbacks(
     page: int = Query(1, ge=1),
-    size: int = Query(10,ge=1, le=100),
+    size: int = Query(10, ge=1, le=100),
     pg_db: AsyncSession = Depends(get_pg_db),
     current_user: User = Depends(require_superadmin)
 ):

@@ -31,7 +31,7 @@ class Embedder:
                     err_str = str(e)
                     if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower() or "exhausted" in err_str.lower():
                         wait_time = 10 * (2 ** attempt)
-                        print(f"Rate limited (429) on batch {i//batch_size}. Retrying in {wait_time}s...")
+                        print(f"Rate limited (429) on batch {i // batch_size}. Retrying in {wait_time}s...")
                         time.sleep(wait_time)
                     else:
                         print(f"Embedder error: {e}")

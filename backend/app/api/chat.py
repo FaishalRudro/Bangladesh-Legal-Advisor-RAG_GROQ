@@ -42,7 +42,7 @@ Queries the RAG system to generate scholarly Legal answers based on ingested Law
 **Permissions:** Authenticated Users Only (Super Admin, Lawyer, User)
 """
 )
-async def chat(request: ChatRequest, db: chromadb.Client = Depends(get_db), pg_db: AsyncSession = Depends(get_pg_db), current_user: User = Depends(require_any_user)):
+async def chat(request: ChatRequest, db: chromadb.Client = Depends(get_db), pg_db: AsyncSession = Depends(get_pg_db), current_user: User = Depends(require_any_user)):  # noqa: E501
     retriever = Retriever(db)
     generator = Generator()
     formatter = ScholarlyResponseFormatter()
@@ -165,7 +165,7 @@ This includes:
 async def get_session(
     session_id: int, 
     page: int = Query(1, ge=1),
-    size: int = Query(10,ge=1, le=100),
+    size: int = Query(10, ge=1, le=100),
     pg_db: AsyncSession = Depends(get_pg_db), 
     current_user: User = Depends(require_any_user)
 ):
