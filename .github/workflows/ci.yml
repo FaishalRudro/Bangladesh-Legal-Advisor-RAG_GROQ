@@ -49,31 +49,29 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Prepare HuggingFace-compatible branch
+      - name: Prepare clean deploy tree (no binary images)
         run: |
           git config --global user.email "ci@github.com"
           git config --global user.name "GitHub Actions"
 
-          # Remove binary image files that HuggingFace rejects
-          # (HF only allows binary files via their LFS/dataset storage)
-          git rm --cached --ignore-unmatch \
-            frontend/public/*.png \
-            frontend/public/*.jpg \
-            frontend/public/*.jpeg \
-            frontend/public/*.gif \
-            frontend/public/*.webp
+          # Remove all binary image files from the working tree
+          find frontend/public -type f \( \
+            -name "*.png" -o -name "*.jpg" -o \
+            -name "*.jpeg" -o -name "*.gif" -o \
+            -name "*.webp" \) -delete
 
-          # Only commit if there are staged changes
-          git diff --cached --quiet || git commit -m "ci: remove binary images for HuggingFace deploy"
+          # Create a fresh orphan branch with no git history
+          # This avoids HF scanning old commits for binary blobs
+          git checkout --orphan hf-deploy
+          git add -A
+          git commit -m "deploy: clean snapshot for HuggingFace (no binary images)"
 
       - name: Push to HuggingFace Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Use token-only auth (no username prefix) — required for HF access tokens
           HF_URL="https://user:${HF_TOKEN}@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor"
           git remote add space "$HF_URL"
-          git push space main --force
+          # Push orphan branch as main to HF (force overwrites HF history)
+          git push space hf-deploy:main --force
