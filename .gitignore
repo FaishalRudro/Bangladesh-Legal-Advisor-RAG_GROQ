@@ -1,20 +1,100 @@
-# Python
-backend/venv/
-backend/__pycache__/
-backend/*.pkl
-backend/*.npy
-backend/*.pkl.meta
-backend/expansion_cache.json
-
-# Environment variables (NEVER push these)
+# ============================================================
+# SECRETS & ENVIRONMENT (NEVER push these)
+# ============================================================
 backend/.env
 frontend/.env
+frontend/.env.local
+.env
+.env.*
+!.env.example
+!frontend/.env.example
 
-# Node
-frontend/node_modules/
-frontend/dist/
+# ============================================================
+# PYTHON
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
 
+# Virtual environments
+backend/venv/
+venv/
+env/
+.venv/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# ============================================================
+# VECTOR DB & ML ARTIFACTS
+# ============================================================
+backend/chroma_db/
+*.pkl
+*.pkl.meta
+*.npy
+*.faiss
+*.index
+backend/expansion_cache.json
+
+# ============================================================
+# DATA FILES (large / sensitive)
+# ============================================================
+backend/data/
 backend/bangladesh_laws.json
 
-# VS Code
+# ============================================================
+# LOGS & DEBUG FILES
+# ============================================================
+backend/logs/
+backend/*.log
+backend/server.log
+backend/api_result.txt
+backend/debug_result.txt
+backend/result.txt
+*.log
+
+# ============================================================
+# LOCAL TEST SCRIPTS (not part of the app)
+# ============================================================
+backend/test_*.py
+
+# ============================================================
+# NODE / FRONTEND
+# ============================================================
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+.next/
+
+# ============================================================
+# IDE & OS
+# ============================================================
 .vscode/
+frontend/.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# MISC
+# ============================================================
+*.tmp
+*.bak

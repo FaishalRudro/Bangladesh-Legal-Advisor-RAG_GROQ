@@ -377,7 +377,7 @@ Bangladesh Labour Law, 2006 → http://bdlaws.minlaw.gov.bd/act-details-952.html
 │  6. Neighbour Expansion (±1 window)                 │
 │  7. Cross-Encoder Reranking (mMiniLM multilingual)  │
 │  8. Deduplication                                   │
-│  9. Groq LLM (llama-3.3-70b-versatile)             │
+│  9. Gemini LLM (gemini-2.5-flash-lite)             │
 └─────────────────┬───────────────────────────────────┘
                   │
 ┌─────────────────▼───────────────────────────────────┐
@@ -400,7 +400,7 @@ Bangladesh Labour Law, 2006 → http://bdlaws.minlaw.gov.bd/act-details-952.html
 | REPLACED chunks | ~17% |
 | Embedding Model | paraphrase-multilingual-mpnet-base-v2 (768-dim) |
 | Reranker | mmarco-mMiniLMv2-L12-H384-v1 |
-| LLM | llama-3.3-70b-versatile (Groq) |
+| LLM | gemini-2.5-flash-lite (Gemini) |
 | BM25 Vocabulary | ~100k+ tokens |
 | Repeal Chain Links | 252+ |
 
@@ -422,7 +422,7 @@ Bangladesh Labour Law, 2006 → http://bdlaws.minlaw.gov.bd/act-details-952.html
 ### Prerequisites
 - Python 3.11+ (or 3.14)
 - Node.js v18+
-- Groq API Key (free at [console.groq.com](https://console.groq.com))
+- Gemini API Key (get from Google AI Studio)
 
 ### Backend
 
@@ -435,7 +435,7 @@ pip install -r requirements.txt
 
 Create `backend/.env`:
 ```env
-GROQ_API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_gemini_api_key
 DATASET_PATH=C:/path/to/bangladesh_laws.json
 INDEX_CACHE_PATH=./rag_index.pkl
 ```
