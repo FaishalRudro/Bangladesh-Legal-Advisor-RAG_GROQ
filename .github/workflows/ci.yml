@@ -41,7 +41,7 @@ jobs:
           cd frontend
           npm run build
         env:
-          VITE_API_URL: http://localhost:8000
+          NEXT_PUBLIC_API_URL: http://localhost:8000
   deploy-to-huggingface:
     name: Deploy to HuggingFace Spaces
     runs-on: ubuntu-latest
@@ -51,12 +51,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: true
+
       - name: Push to HuggingFace Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git config --global user.email "ci@github.com"
           git config --global user.name "GitHub Actions"
-          git remote add space https://RudroBoss:$HF_TOKEN@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor
+
+          HF_URL="https://RudroBoss:${HF_TOKEN}@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor"
+          git remote add space "$HF_URL"
+
+          # All files are regular git objects (no LFS), push directly
           git push space main --force
