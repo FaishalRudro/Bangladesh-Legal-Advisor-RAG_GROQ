@@ -52,15 +52,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push to HuggingFace Spaces
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      - name: Prepare HuggingFace-compatible branch
         run: |
           git config --global user.email "ci@github.com"
           git config --global user.name "GitHub Actions"
 
+          # Remove binary image files that HuggingFace rejects
+          # (HF only allows binary files via their LFS/dataset storage)
+          git rm --cached --ignore-unmatch \
+            frontend/public/*.png \
+            frontend/public/*.jpg \
+            frontend/public/*.jpeg \
+            frontend/public/*.gif \
+            frontend/public/*.webp
+
+          # Only commit if there are staged changes
+          git diff --cached --quiet || git commit -m "ci: remove binary images for HuggingFace deploy"
+
+      - name: Push to HuggingFace Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
           HF_URL="https://RudroBoss:${HF_TOKEN}@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor"
           git remote add space "$HF_URL"
-
-          # All files are regular git objects (no LFS), push directly
           git push space main --force
