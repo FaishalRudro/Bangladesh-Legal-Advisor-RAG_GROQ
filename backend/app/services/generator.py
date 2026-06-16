@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.prompts.generation_prompt import SCHOLARLY_SYSTEM_PROMPT_BN, SCHOLARLY_SYSTEM_PROMPT_EN
 from app.formatters.chunk_formatter import ChunkFormatter
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Optional
 
 logger = logging.getLogger("app.generator")
 
@@ -32,26 +32,6 @@ def _clean(text: str) -> str:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Schema — with Chain-of-Thought reasoning fields (logged, not shown to user)
-# ---------------------------------------------------------------------------
-
-class ReasoningTrace(BaseModel):
-    """Internal CoT — logged for debugging, never shown in the final response."""
-    question_intent: str = Field(
-        description="One sentence: what exactly is the user asking? Is it quantitative, procedural, substantive, or comparative?"
-    )
-    relevant_context_found: str = Field(
-        description="Which parts of the retrieved context directly address the query? List section titles or key phrases."
-    )
-    direct_answer_available: bool = Field(
-        description="True if the context contains a direct, specific answer. False if only partial or indirect info is available."
-    )
-    gaps: str = Field(
-        description="What specific information is missing from the context that would be needed for a complete answer? Write 'none' if fully answered."
-    )
-
-
 class LegalPoint(BaseModel):
     analysis: str = Field(
         description=(
@@ -72,9 +52,6 @@ class LegalPoint(BaseModel):
 
 
 class ScholarlyEssay(BaseModel):
-    reasoning: ReasoningTrace = Field(
-        description="Internal reasoning trace. Fill this FIRST before writing the answer."
-    )
     summary: str = Field(
         description=(
             "3-4 sentences: situation overview and direct answer based ONLY on retrieved context. "
@@ -149,14 +126,6 @@ class Generator:
             )
 
             data = json.loads(response.text)
-
-            # --- Log CoT reasoning trace (never shown to user) ---
-            r = data.get("reasoning", {})
-            logger.info(
-                f"Generator CoT | intent: {r.get('question_intent', '')} | "
-                f"direct_answer: {r.get('direct_answer_available', '')} | "
-                f"gaps: {r.get('gaps', '')}"
-            )
 
             header = "বাংলাদেশ লিগ্যাল এডভাইজার" if language == "bn" else "Bangladesh Legal Advisor"
 

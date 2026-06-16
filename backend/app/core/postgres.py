@@ -10,7 +10,14 @@ ASYNC_DATABASE_URL = _base_url.split("?")[0]
 # Enable SSL for hosted databases (e.g. Neon, Supabase)
 _connect_args = {"ssl": True} if "neon.tech" in ASYNC_DATABASE_URL or "supabase" in ASYNC_DATABASE_URL else {}
 
-engine = create_async_engine(ASYNC_DATABASE_URL, echo=False, connect_args=_connect_args)
+engine = create_async_engine(
+    ASYNC_DATABASE_URL,
+    echo=False,
+    connect_args=_connect_args,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+)
 AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=AsyncSession)
 
 Base = declarative_base()
