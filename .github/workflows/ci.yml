@@ -80,7 +80,6 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          HF_URL="https://user:${HF_TOKEN}@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor"
+          HF_URL="https://oauth2:${HF_TOKEN}@huggingface.co/spaces/RudroBoss/Bangladesh-Legal-Advisor"
           git remote add space "$HF_URL"
-          # Push orphan branch as main to HF (force overwrites HF history)
           git push space hf-deploy:main --force
