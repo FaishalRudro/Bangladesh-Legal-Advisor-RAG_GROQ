@@ -7,6 +7,8 @@ from app.core.security import get_password_hash
 from app.core.config import settings
 import logging
 import logging.config
+import os
+from pathlib import Path
 from app.middleware.custom import CustomMiddleware
 
 # ---------------------------------------------------------------------------
@@ -80,6 +82,31 @@ app.add_middleware(CustomMiddleware)
 async def startup_event():
     # Re-apply logging config on startup (needed when uvicorn --reload overrides it)
     logging.config.dictConfig(LOGGING_CONFIG)
+
+    # Download bangladesh_laws.json from HuggingFace Dataset if not present
+    laws_path = settings.DATA_DIR / "bangladesh_laws.json"
+    if not laws_path.exists():
+        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+        dataset_url = (
+            "https://huggingface.co/datasets/RudroBoss/Bangladesh_Legal_Data"
+            "/resolve/main/bangladesh_laws.json"
+        )
+        logger.info("bangladesh_laws.json not found locally — downloading from HuggingFace Dataset...")
+        try:
+            import urllib.request
+            headers = {}
+            if hf_token:
+                headers["Authorization"] = f"Bearer {hf_token}"
+
+            req = urllib.request.Request(dataset_url, headers=headers)
+            laws_path.parent.mkdir(parents=True, exist_ok=True)
+            with urllib.request.urlopen(req) as response, open(laws_path, "wb") as out_file:
+                out_file.write(response.read())
+            logger.info(f"Downloaded bangladesh_laws.json ({laws_path.stat().st_size // (1024*1024)} MB)")
+        except Exception as e:
+            logger.error(f"Failed to download bangladesh_laws.json: {e}")
+    else:
+        logger.info("bangladesh_laws.json already present, skipping download.")
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).filter(User.role == UserRole.super_admin))
