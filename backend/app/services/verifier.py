@@ -33,17 +33,24 @@ class Verifier:
             logger.info(f"Verifier: Fast accepting ({max_score:.4f})")
             return True
 
-        # Borderline: AI check — pass if ANY related content exists
+        # Borderline: AI check — pass only if context has specific enough info
         logger.info(f"Verifier: Borderline ({max_score:.4f}), running AI check...")
         context = self.formatter.format_for_prompt(chunks)
         prompt = (
-            "You are a relevance filter for a legal RAG system.\n"
-            "Read the user query and the retrieved legal context passages.\n"
-            "Answer YES if the context contains ANY information related to the query topic "
-            "(even partially — a relevant law, section, or concept is enough).\n"
-            "Answer NO only if the context is completely unrelated to the query topic.\n"
-            "Note: The generator will decide if the answer is specific enough — "
-            "your job is only to check topic relevance.\n"
+            "You are a strict relevance filter for a legal RAG system.\n"
+            "Read the user query and the retrieved legal context passages.\n\n"
+            "Answer YES only if the context contains SPECIFIC information that can directly answer the query — "
+            "meaning it has the actual legal provision, section text, punishment, procedure, or definition "
+            "that the user is asking about.\n\n"
+            "Answer NO if:\n"
+            "- The context only mentions the topic in passing without specific details\n"
+            "- The context is about a related but different subject\n"
+            "- The context lacks the specific facts, numbers, or provisions needed to answer\n"
+            "- The context contains only general principles without the specific answer\n\n"
+            "Examples:\n"
+            "Query: 'মাতৃত্বকালীন ছুটি কতদিন?' — YES only if context has the exact number of days\n"
+            "Query: 'What is punishment for theft?' — YES only if context has the specific section and penalty\n"
+            "Query: 'Is DSA still in force?' — YES only if context has repeal information\n\n"
             "Reply with EXACTLY 'YES' or 'NO'. Do not explain.\n\n"
             f"Bengali Query: {query_bn}\n"
             f"English Query: {query_en}\n\n"
