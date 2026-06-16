@@ -3,7 +3,7 @@ uvicorn==0.29.0
 pydantic==2.7.1
 pydantic-settings==2.2.1
 chromadb
-google-generativeai
+google-genai
 python-dotenv==1.0.1
 python-multipart==0.0.9
 sqlalchemy
