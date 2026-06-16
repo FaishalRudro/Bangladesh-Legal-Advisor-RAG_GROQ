@@ -36,4 +36,7 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # Backend runs internally on port 8000
 EXPOSE 7860
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/bin/bash", "-c", "\
+  echo 'BACKEND_API_BASE_URL=http://localhost:8000' > /app/frontend/.env.local && \
+  /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\
+"]

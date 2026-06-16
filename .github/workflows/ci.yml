@@ -61,10 +61,19 @@ jobs:
             -name "*.jpeg" -o -name "*.gif" -o \
             -name "*.webp" \) -delete
 
+          # Verify Next.js frontend structure is present
+          echo "=== Frontend structure ==="
+          ls frontend/pages/ || echo "WARNING: frontend/pages missing!"
+          ls frontend/components/ | head -5
+
           # Create a fresh orphan branch with no git history
-          # This avoids HF scanning old commits for binary blobs
           git checkout --orphan hf-deploy
           git add -A
+
+          # Verify what's staged
+          echo "=== Staged files count ==="
+          git status --short | wc -l
+
           git commit -m "deploy: clean snapshot for HuggingFace (no binary images)"
 
       - name: Push to HuggingFace Spaces
